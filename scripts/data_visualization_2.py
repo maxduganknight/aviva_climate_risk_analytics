@@ -1,8 +1,10 @@
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 from utils import (
     DECADE_COLORS,
     FIGURE_SIZE_WIDE,
+    VARIABLES,
     apply_standard_style,
     save_and_clear,
     setup_month_axis,
@@ -25,6 +27,129 @@ def plot_scatter(x_values, y_values, title):
     plt.scatter(x_values, y_values)
     plt.title(title)
     return plt
+
+
+def plot_regional_anomaly_heatmap(
+    df,
+    anomaly_variable,
+    title,
+    cmap="RdBu_r",
+    figsize=(16, 6),
+    vmin=None,
+    vmax=None,
+    year_step=5,
+):
+    """
+    Create a time-series heatmap showing regional anomalies over time.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Anomaly dataframe with columns: year, month, region, {variable}_anomaly
+    anomaly_variable : str
+        Name of anomaly variable to plot (e.g., 'temperature_c_anomaly')
+    title : str
+        Plot title
+    cmap : str, optional
+        Colormap name. Default 'RdBu_r' (red=positive, blue=negative)
+    figsize : tuple, optional
+        Figure size (width, height). Default (16, 6)
+    vmin : float, optional
+        Minimum value for colormap. If None, uses symmetric range around zero
+    vmax : float, optional
+        Maximum value for colormap. If None, uses symmetric range around zero
+    year_step : int, optional
+        Step size for year labels on x-axis. Default 5
+
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure object
+    """
+    # Create a pivot table: regions as rows, time as columns
+    df_copy = df.copy()
+    df_copy["year_month"] = (
+        df_copy["year"].astype(str) + "-" + df_copy["month"].astype(str).str.zfill(2)
+    )
+
+    # Define region order (spatial organization: NW, NE, SW, SE, Grand Total)
+    region_order = [
+        "NW Alberta",
+        "NE Alberta",
+        "SW Alberta",
+        "SE Alberta",
+        "Grand Total",
+    ]
+
+    # Filter to only regions that exist in the data
+    region_order = [r for r in region_order if r in df_copy["region"].unique()]
+
+    # Create pivot table
+    heatmap_data = df_copy.pivot_table(
+        values=anomaly_variable, index="region", columns="year_month", aggfunc="mean"
+    )
+
+    # Reorder regions
+    heatmap_data = heatmap_data.reindex(region_order)
+
+    # Determine color scale (symmetric around zero for diverging colormap)
+    if vmin is None or vmax is None:
+        max_abs = np.nanmax(np.abs(heatmap_data.values))
+        vmin = -max_abs if vmin is None else vmin
+        vmax = max_abs if vmax is None else vmax
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Create heatmap
+    im = ax.imshow(
+        heatmap_data.values,
+        aspect="auto",
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+
+    # Set y-axis (regions)
+    ax.set_yticks(range(len(heatmap_data.index)))
+    ax.set_yticklabels(heatmap_data.index, fontsize=11)
+
+    # Set x-axis (years) - show every N years
+    year_months = heatmap_data.columns
+    years = [ym.split("-")[0] for ym in year_months]
+    months = [ym.split("-")[1] for ym in year_months]
+
+    # Find indices where year changes and is divisible by year_step
+    tick_positions = []
+    tick_labels = []
+    prev_year = None
+
+    for i, (year, month) in enumerate(zip(years, months)):
+        if year != prev_year and int(year) % year_step == 0:
+            tick_positions.append(i)
+            tick_labels.append(year)
+            prev_year = year
+
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels, rotation=0, fontsize=10)
+
+    # Labels and title
+    ax.set_xlabel("Year", fontsize=12)
+    ax.set_ylabel("Region", fontsize=12)
+    ax.set_title(title, fontsize=14, pad=20)
+
+    # Add colorbar
+    cbar = plt.colorbar(im, ax=ax, orientation="vertical", pad=0.02, fraction=0.046)
+    cbar.ax.tick_params(labelsize=10)
+
+    # Add zero line to colorbar if it's a diverging scale
+    if vmin < 0 < vmax:
+        cbar.ax.axhline(y=0.5, color="black", linewidth=0.5, linestyle="--", alpha=0.3)
+
+    plt.tight_layout()
+
+    return fig
 
 
 def plot_each_decade_by_month(df, y_variable, title, ylabel):
@@ -171,6 +296,47 @@ def plot_alberta_totals():
     save_and_clear(fig, "figures/alberta_monthly_proxy_fwi_by_decade.png")
 
 
+def plot_regional_anomaly_heatmaps():
+    """
+    Generate time-series heatmaps for all regional anomaly variables.
+
+    Creates one heatmap per variable showing how anomalies vary across
+    regions and time.
+    """
+    # Load regional anomalies data
+    anomaly_df = pd.read_csv("data_processed/regional_anomalies.csv")
+
+    # Build variables list from VARIABLES dict
+    variables = []
+    for var_key, var_config in VARIABLES.items():
+        anomaly_column = f"{var_config['short_name']}_anomaly"
+
+        # Only add if column exists in the dataframe
+        if anomaly_column in anomaly_df.columns:
+            variables.append(
+                {
+                    "column": anomaly_column,
+                    "title": f"Regional {var_config['display_name']} Anomalies ({var_config['units']})\nRelative to 1981-1996 Baseline",
+                    "filename": f"regional_{var_key}_anomaly_heatmap.png",
+                }
+            )
+
+    # Generate heatmap for each variable
+    for var_config in variables:
+        fig = plot_regional_anomaly_heatmap(
+            df=anomaly_df,
+            anomaly_variable=var_config["column"],
+            title=var_config["title"],
+            cmap="RdBu_r",  # Red for positive anomalies, Blue for negative
+            figsize=(16, 6),
+        )
+        save_and_clear(fig, f"figures/{var_config['filename']}")
+        print(f"Saved {var_config['filename']}")
+
+
 if __name__ == "__main__":
     df = pd.read_csv("data_processed/long_df.csv")
     plot_alberta_totals()
+
+    # Generate regional anomaly heatmaps
+    plot_regional_anomaly_heatmaps()

@@ -6,16 +6,68 @@ Centralizes styling, colors, and common plotting functions.
 import matplotlib.pyplot as plt
 
 # ============================================================================
+# CLIMATE VARIABLES CONFIGURATION
+# ============================================================================
+
+# Central configuration for all climate variables used in the project
+# Each variable has metadata for consistent naming and display across scripts
+VARIABLES = {
+    "temperature": {
+        "long_name": "mean_temperature_c",
+        "short_name": "temperature_c",
+        "display_name": "Temperature",
+        "units": "°C",
+        "description": "Mean temperature",
+    },
+    "precipitation": {
+        "long_name": "total_precipitation_mm",
+        "short_name": "precipitation_mm",
+        "display_name": "Precipitation",
+        "units": "mm",
+        "description": "Total precipitation",
+    },
+    "snow_on_ground": {
+        "long_name": "snow_on_ground_last_day_cm",
+        "short_name": "snow_on_ground_cm",
+        "display_name": "Snow on Ground",
+        "units": "cm",
+        "description": "Snow on ground (last day)",
+    },
+    "heating_degrees": {
+        "long_name": "mean_heating_days_c",
+        "short_name": "heating_degrees_c",
+        "display_name": "Heating Degree Days",
+        "units": "°C",
+        "description": "Mean heating degree days",
+    },
+    "cooling_degrees": {
+        "long_name": "mean_cooling_days_c",
+        "short_name": "cooling_degrees_c",
+        "display_name": "Cooling Degree Days",
+        "units": "°C",
+        "description": "Mean cooling degree days",
+    },
+    "proxy_fwi": {
+        "long_name": "proxy_fwi",
+        "short_name": "proxy_fwi",
+        "display_name": "Proxy Fire Weather Index",
+        "units": "index (0-100)",
+        "description": "Proxy Fire Weather Index",
+    },
+}
+
+# ============================================================================
 # COLOR SCHEMES
 # ============================================================================
 
-# Decade color mapping for consistent visualization across all plots
+# Decade color mapping - gradient from blue (1980s) to red (2020s)
+# This creates a visual progression showing temporal change
 DECADE_COLORS = {
-    1980: "#1f77b4",  # Blue
-    1990: "#ff7f0e",  # Orange
-    2000: "#2ca02c",  # Green
-    2010: "#d62728",  # Red
-    2020: "#9467bd",  # Purple
+    1980: "#3b4cc0",  # Blue
+    1990: "#7f96d4",  # Light blue
+    2000: "#b8b8dc",  # Purple-gray (middle)
+    2010: "#e08074",  # Coral/salmon
+    2020: "#d62728",  # Red
 }
 
 # Month abbreviations for x-axis labels
