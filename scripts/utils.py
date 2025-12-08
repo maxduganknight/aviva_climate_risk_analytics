@@ -1,117 +1,125 @@
-import pandas as pd
+"""
+Utility functions and constants for data visualization across the project.
+Centralizes styling, colors, and common plotting functions.
+"""
+
+import matplotlib.pyplot as plt
+
+# ============================================================================
+# COLOR SCHEMES
+# ============================================================================
+
+# Decade color mapping for consistent visualization across all plots
+DECADE_COLORS = {
+    1980: "#1f77b4",  # Blue
+    1990: "#ff7f0e",  # Orange
+    2000: "#2ca02c",  # Green
+    2010: "#d62728",  # Red
+    2020: "#9467bd",  # Purple
+}
+
+# Month abbreviations for x-axis labels
+MONTH_LABELS = [
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
+]
+
+# ============================================================================
+# FONT SETTINGS
+# ============================================================================
+
+FONT_SIZE_TITLE = 14
+FONT_SIZE_LABEL = 12
+FONT_SIZE_TICK = 10
+
+# ============================================================================
+# FIGURE SETTINGS
+# ============================================================================
+
+FIGURE_SIZE_STANDARD = (10, 6)
+FIGURE_SIZE_WIDE = (12, 6)
+FIGURE_DPI = 100
+GRID_ALPHA = 0.3
+
+# ============================================================================
+# PLOTTING FUNCTIONS
+# ============================================================================
 
 
-def reformat_eccc_data_to_long(df):
+def apply_standard_style(ax, title, xlabel, ylabel):
     """
-    Reformat ECCC climate data from wide format to long format.
-
-    The input dataframe has a multi-level column structure:
-    - Level 0: Column Labels header
-    - Level 1: Year (1981, 1982, etc.)
-    - Level 2: Month (1-12)
-    - Level 3: Metric names (MEAN_TEMPERATURE, TOTAL_PRECIPITATION, etc.)
-
-    Each year has 12 months × 5 metrics = 60 columns, followed by 5 yearly average columns.
+    Apply standard styling to a matplotlib axis.
 
     Parameters
     ----------
-    df : pd.DataFrame
-        Input dataframe with multi-level columns read from ECCC CSV
+    ax : matplotlib.axes.Axes
+        The axis to style
+    title : str
+        Plot title
+    xlabel : str
+        X-axis label
+    ylabel : str
+        Y-axis label
+    """
+    ax.set_title(title, fontsize=FONT_SIZE_TITLE)
+    ax.set_xlabel(xlabel, fontsize=FONT_SIZE_LABEL)
+    ax.set_ylabel(ylabel, fontsize=FONT_SIZE_LABEL)
+    ax.tick_params(labelsize=FONT_SIZE_TICK)
+    ax.grid(True, alpha=GRID_ALPHA)
+
+
+def get_decade_color(year):
+    """
+    Get the color for a given year based on its decade.
+
+    Parameters
+    ----------
+    year : int
+        Year value
 
     Returns
     -------
-    pd.DataFrame
-        Long format dataframe with columns:
-        - year: int
-        - month: int
-        - location: str
-        - mean_temperature_c: float
-        - total_precipitation_mm: float
-        - snow_on_ground_last_day_cm: float
-        - mean_heating_days_c: float
-        - mean_cooling_days_c: float
+    str
+        Hex color code
     """
-    # Extract location names (first column)
-    locations = df.iloc[:, 0]
+    decade = (year // 10) * 10
+    return DECADE_COLORS.get(decade, "#7f7f7f")  # Default gray
 
-    # Build list of records
-    records = []
 
-    for loc_idx, location in enumerate(locations):
-        col_idx = 1  # Start after location column
-        current_year = None
+def setup_month_axis(ax):
+    """
+    Configure x-axis for monthly data (1-12).
 
-        # Process each column
-        while col_idx < len(df.columns):
-            year_val = df.columns[col_idx][1]
-            month_val = df.columns[col_idx][2]
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        The axis to configure
+    """
+    ax.set_xticks(range(1, 13))
+    ax.set_xticklabels(MONTH_LABELS)
 
-            # Check if this is a new year marker (year appears in level 1)
-            if not str(year_val).startswith("Unnamed"):
-                # This could be a year value or a yearly average
-                try:
-                    year_int = int(year_val)
-                    current_year = year_int
-                except (ValueError, TypeError):
-                    # Skip yearly averages and other non-year values
-                    col_idx += 1
-                    continue
 
-            # Check if we have a valid month
-            if current_year is not None:
-                try:
-                    month_int = int(month_val)
-                except (ValueError, TypeError):
-                    # Not a valid month, move to next column
-                    col_idx += 1
-                    continue
+def save_and_clear(fig, filepath):
+    """
+    Save figure to file and clear for next plot.
 
-                # Extract the 5 metrics for this year-month combination
-                mean_temp = df.iloc[loc_idx, col_idx]
-                total_precip = (
-                    df.iloc[loc_idx, col_idx + 1]
-                    if col_idx + 1 < len(df.columns)
-                    else None
-                )
-                snow_ground = (
-                    df.iloc[loc_idx, col_idx + 2]
-                    if col_idx + 2 < len(df.columns)
-                    else None
-                )
-                cooling_days = (
-                    df.iloc[loc_idx, col_idx + 3]
-                    if col_idx + 3 < len(df.columns)
-                    else None
-                )
-                heating_days = (
-                    df.iloc[loc_idx, col_idx + 4]
-                    if col_idx + 4 < len(df.columns)
-                    else None
-                )
-
-                # Add record
-                records.append(
-                    {
-                        "year": current_year,
-                        "month": month_int,
-                        "location": location,
-                        "mean_temperature_c": mean_temp,
-                        "total_precipitation_mm": total_precip,
-                        "snow_on_ground_last_day_cm": snow_ground,
-                        "mean_cooling_days_c": cooling_days,
-                        "mean_heating_days_c": heating_days,
-                    }
-                )
-
-                # Move to next month (skip 5 metric columns)
-                col_idx += 5
-            else:
-                col_idx += 1
-
-    # Create long format dataframe
-    long_df = pd.DataFrame(records)
-
-    # Sort by location, year, month
-    long_df = long_df.sort_values(["location", "year", "month"]).reset_index(drop=True)
-
-    return long_df
+    Parameters
+    ----------
+    fig : matplotlib.figure.Figure
+        Figure to save
+    filepath : str
+        Path to save the figure
+    """
+    plt.tight_layout()
+    fig.savefig(filepath, dpi=FIGURE_DPI)
+    plt.clf()

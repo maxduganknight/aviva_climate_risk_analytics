@@ -160,6 +160,74 @@ def reformat_eccc_data_to_long(df, coord_lookup=None):
     return long_df
 
 
+def calculate_proxy_fwi(df):
+    """
+    Calculate a proxy Fire Weather Index based on temperature and precipitation.
+
+    This is a simplified proxy of the Canadian Fire Weather Index System,
+    adapted for monthly data without humidity or wind speed measurements.
+
+    Components:
+    1. Temperature Risk: Higher temps increase fire risk (exponential above 20°C)
+    2. Precipitation Deficit: Lower precip increases fire risk
+    3. Drought Accumulation: Rolling 3-month precipitation deficit
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long format dataframe with columns: location, year, month,
+        mean_temperature_c, total_precipitation_mm
+
+    Returns
+    -------
+    pd.DataFrame
+        Input dataframe with new 'proxy_fwi' column added (scale 0-100)
+    """
+    df = df.copy()
+
+    # Temperature Risk Score (0-100)
+    # Linear scale from 10°C to 30°C, capped at 100
+    df["temp_risk"] = df["mean_temperature_c"].apply(
+        lambda x: min(100, max(0, (x - 10) * 5)) if pd.notna(x) else np.nan
+    )
+
+    # Precipitation Risk Score (0-100)
+    # Inverse relationship: less precip = higher risk
+    # Scaled so 50mm = 0 risk, 0mm = 100 risk
+    df["precip_risk"] = df["total_precipitation_mm"].apply(
+        lambda x: max(0, 100 - (x * 2)) if pd.notna(x) else np.nan
+    )
+
+    # Drought Accumulation Score (0-100)
+    # Rolling 3-month sum of precipitation deficit
+    # Reference: 150mm over 3 months is adequate moisture
+    df["drought_risk"] = np.nan
+    for location in df["location"].unique():
+        mask = df["location"] == location
+        precip_series = df.loc[mask, "total_precipitation_mm"]
+
+        # Calculate 3-month rolling sum
+        rolling_precip = precip_series.rolling(window=3, min_periods=1).sum()
+
+        # Convert to deficit score (150mm reference = 0 risk, 0mm = 100 risk)
+        drought_score = rolling_precip.apply(
+            lambda x: max(0, min(100, 100 - (x / 150 * 100))) if pd.notna(x) else np.nan
+        )
+
+        df.loc[mask, "drought_risk"] = drought_score.values
+
+    # Combined Proxy FWI (weighted average)
+    # Weights: temp (40%), precip (35%), drought (25%)
+    df["proxy_fwi"] = (
+        0.40 * df["temp_risk"] + 0.35 * df["precip_risk"] + 0.25 * df["drought_risk"]
+    )
+
+    # Clean up intermediate columns
+    df = df.drop(columns=["temp_risk", "precip_risk", "drought_risk"])
+
+    return df
+
+
 if __name__ == "__main__":
     raw_file_path = "data_raw/GoC climate-monthly sample data.csv"
     station_inventory_path = "data_raw/Station Inventory EN.csv"
@@ -170,6 +238,9 @@ if __name__ == "__main__":
 
     # Reformat with coordinates
     long_df = reformat_eccc_data_to_long(df, coord_lookup)
+
+    # Calculate proxy FWI
+    long_df = calculate_proxy_fwi(long_df)
 
     # Save long format dataframe to CSV
     long_df.to_csv("data_processed/long_df.csv", index=False)
