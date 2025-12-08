@@ -7,7 +7,34 @@ import numpy as np
 import pandas as pd
 
 
-def reformat_eccc_data_to_long(df):
+def load_station_coords(station_inventory_path):
+    """
+    Load station coordinates from ECCC Station Inventory file.
+
+    Parameters
+    ----------
+    station_inventory_path : str
+        Path to the Station Inventory EN.csv file
+
+    Returns
+    -------
+    dict
+        Dictionary mapping station names to (latitude, longitude) tuples
+    """
+    df_stations = pd.read_csv(station_inventory_path, skiprows=3)
+    alberta_stations = df_stations[df_stations["Province"] == "ALBERTA"]
+    # Create lookup dictionary
+    coord_lookup = {}
+    for _, row in alberta_stations.iterrows():
+        name = row["Name"]
+        lat = row["Latitude (Decimal Degrees)"]
+        lon = row["Longitude (Decimal Degrees)"]
+        coord_lookup[name] = (lat, lon)
+
+    return coord_lookup
+
+
+def reformat_eccc_data_to_long(df, coord_lookup=None):
     """
     Reformat ECCC climate data from wide format to long format.
 
@@ -23,6 +50,8 @@ def reformat_eccc_data_to_long(df):
     ----------
     df : pd.DataFrame
         Input dataframe with multi-level columns read from ECCC CSV
+    coord_lookup : dict, optional
+        Dictionary mapping station names to (latitude, longitude) tuples
 
     Returns
     -------
@@ -31,6 +60,8 @@ def reformat_eccc_data_to_long(df):
         - year: int
         - month: int
         - location: str
+        - latitude: float
+        - longitude: float
         - mean_temperature_c: float
         - total_precipitation_mm: float
         - snow_on_ground_last_day_cm: float
@@ -54,7 +85,6 @@ def reformat_eccc_data_to_long(df):
 
             # Check if this is a new year marker (year appears in level 1)
             if not str(year_val).startswith("Unnamed"):
-                # This could be a year value or a yearly average
                 try:
                     year_int = int(year_val)
                     current_year = year_int
@@ -95,12 +125,19 @@ def reformat_eccc_data_to_long(df):
                     else None
                 )
 
+                # Look up coordinates if available
+                lat, lon = None, None
+                if coord_lookup and location in coord_lookup:
+                    lat, lon = coord_lookup[location]
+
                 # Add record
                 records.append(
                     {
                         "year": current_year,
                         "month": month_int,
                         "location": location,
+                        "latitude": lat,
+                        "longitude": lon,
                         "mean_temperature_c": mean_temp,
                         "total_precipitation_mm": total_precip,
                         "snow_on_ground_last_day_cm": snow_ground,
@@ -125,9 +162,14 @@ def reformat_eccc_data_to_long(df):
 
 if __name__ == "__main__":
     raw_file_path = "data_raw/GoC climate-monthly sample data.csv"
-    df = pd.read_csv(raw_file_path, header=[0, 1, 2, 3])
+    station_inventory_path = "data_raw/Station Inventory EN.csv"
 
-    long_df = reformat_eccc_data_to_long(df)
+    # Load data and coordinates
+    df = pd.read_csv(raw_file_path, header=[0, 1, 2, 3])
+    coord_lookup = load_station_coords(station_inventory_path)
+
+    # Reformat with coordinates
+    long_df = reformat_eccc_data_to_long(df, coord_lookup)
 
     # Save long format dataframe to CSV
     long_df.to_csv("data_processed/long_df.csv", index=False)

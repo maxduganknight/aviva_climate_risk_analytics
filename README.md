@@ -1,8 +1,6 @@
 # Aviva Climate Risk Analytics Exercise
 
 This repo contains code, data, and reproducible analysis for assessing climate trends in Alberta from public Environment and Climate Change Canada (ECCC) data.
-https://climate-change.canada.ca/climate-data/?utm_source=perplexity#/monthly-climate-summaries
-
 
 ## Dataset
 
@@ -28,3 +26,9 @@ Variables:
 ## Data Source
 Environment and Climate Change Canada (ECCC). 
 https://climate-change.canada.ca/climate-data/?utm_source=perplexity#/monthly-climate-summaries.
+
+## Setup
+
+1. Activate virtual environment with `source venv/bin/activate`.
+2. Install dependencies with `pip install -r requirements.txt`.
+3. Run the data processing script with `python data_processing_1.py`.
