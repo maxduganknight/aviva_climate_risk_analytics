@@ -1,0 +1,8 @@
+# R Package Requirements for Climate Risk Analytics
+# Install these packages in R using: install.packages(c("extRemes", "dplyr", "tidyr", "ggplot2", "lubridate"))
+
+extRemes  # Extreme value analysis with GEV distributions and non-stationary modeling
+dplyr     # Data manipulation
+tidyr     # Data reshaping
+ggplot2   # Advanced visualizations
+lubridate # Date/time handling

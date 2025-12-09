@@ -171,12 +171,22 @@ def calculate_proxy_fwi(df):
     """
     Calculate a proxy Fire Weather Index based on temperature and precipitation.
 
-    This is a simplified proxy of the Canadian Fire Weather Index System,
-    adapted for monthly data without humidity or wind speed measurements.
+    This is an adaptation of the Canadian Fire Weather Index System (FWI),
+    modified for monthly data without relative humidity or wind speed measurements.
+
+    Methodology References:
+    - Canadian FWI System: https://cwfis.cfs.nrcan.gc.ca/background/summary/fwi
+    - NWCG FWI Documentation: https://www.nwcg.gov/publications/pms437/cffdrs/fire-weather-index-fwi-system
+    - Climate-ADAPT Monthly FWI: https://climate-adapt.eea.europa.eu/en/metadata/indicators/fire-weather-index-monthly-mean-1979-2019
+
+    Key Adaptations for Monthly Data:
+    1. Temperature-dependent precipitation thresholds (accounts for evapotranspiration)
+    2. Fire season threshold at 5°C (Canadian FWI standard)
+    3. Drought accumulation using 3-month rolling precipitation deficit
 
     Components:
-    1. Temperature Risk: Higher temps increase fire risk (exponential above 20°C)
-    2. Precipitation Deficit: Lower precip increases fire risk
+    1. Temperature Risk: Accounts for fire season thresholds and heat effects
+    2. Precipitation Deficit: Temperature-adjusted moisture requirements
     3. Drought Accumulation: Rolling 3-month precipitation deficit
 
     Parameters
@@ -192,41 +202,149 @@ def calculate_proxy_fwi(df):
     """
     df = df.copy()
 
-    # Temperature Risk Score (0-100)
-    # Linear scale from 10°C to 30°C, capped at 100
-    df["temp_risk"] = df["mean_temperature_c"].apply(
-        lambda x: min(100, max(0, (x - 10) * 5)) if pd.notna(x) else np.nan
-    )
+    # =========================================================================
+    # 1. TEMPERATURE RISK SCORE (0-100)
+    # =========================================================================
+    # Based on Canadian FWI fire season thresholds:
+    # - Fire season starts when temp > 12°C for 3 consecutive days
+    # - Fire season ends when temp < 5°C for 3 consecutive days
+    # Source: https://climate-adapt.eea.europa.eu/en/metadata/indicators/fire-weather-index
 
-    # Precipitation Risk Score (0-100)
-    # Inverse relationship: less precip = higher risk
-    # Scaled so 50mm = 0 risk, 0mm = 100 risk
-    df["precip_risk"] = df["total_precipitation_mm"].apply(
-        lambda x: max(0, 100 - (x * 2)) if pd.notna(x) else np.nan
-    )
+    def calculate_temp_risk(temp):
+        if pd.isna(temp):
+            return np.nan
+        elif temp < 5:
+            # Below 5°C: Outside fire season, minimal risk
+            return 0
+        elif temp < 12:
+            # 5-12°C: Transition period, linear ramp-up
+            # 5°C = 0 risk, 12°C = 10 risk
+            return (temp - 5) * (10 / 7)
+        else:
+            # Above 12°C: Active fire season
+            # Linear scale: 12°C = 10 risk, 30°C = 100 risk
+            # Formula: (temp - 12) * 5 + 10
+            return min(100, (temp - 12) * 5 + 10)
 
-    # Drought Accumulation Score (0-100)
-    # Rolling 3-month sum of precipitation deficit
-    # Reference: 150mm over 3 months is adequate moisture
+    df["temp_risk"] = df["mean_temperature_c"].apply(calculate_temp_risk)
+
+    # =========================================================================
+    # 2. PRECIPITATION DEFICIT RISK SCORE (0-100)
+    # =========================================================================
+    # Temperature-adjusted precipitation requirements account for:
+    # - Base moisture needs for fuel (25mm/month minimum)
+    # - Evapotranspiration losses increasing with temperature above 12°C
+    # - Reference evapotranspiration rate: ~3.5mm per °C above 12°C
+    #
+    # CRITICAL: Like drought, precipitation deficit only matters during fire season.
+    # Below 5°C, snow cover and frozen ground prevent fire spread regardless of
+    # precipitation amounts. This aligns with FWI's fire season definitions.
+    #
+    # This approach is inspired by FWI's Drought Code (DC) which tracks deep
+    # moisture and accounts for evapotranspiration through drying equations.
+    # Source: https://confluence.ecmwf.int/pages/viewpage.action?pageId=283569774
+
+    # Constants derived from FWI principles and Alberta climate:
+    BASE_PRECIP_MM = 25  # Base monthly moisture requirement (mm)
+    EVAP_FACTOR = 3.5  # Additional mm needed per °C above 12°C
+    FIRE_SEASON_TEMP = 12  # Temperature threshold for active fire season (°C)
+    FIRE_SEASON_TEMP_MIN = 5  # Temperature below which fire risk is negligible
+
+    def calculate_precip_risk(row):
+        temp = row["mean_temperature_c"]
+        precip = row["total_precipitation_mm"]
+
+        if pd.isna(temp) or pd.isna(precip):
+            return np.nan
+
+        # Outside fire season: precipitation deficit is irrelevant
+        if temp < FIRE_SEASON_TEMP_MIN:
+            return 0
+
+        # Calculate temperature-adjusted required precipitation
+        # Transition period (5-12°C): use base requirement
+        if temp < FIRE_SEASON_TEMP:
+            required_precip = BASE_PRECIP_MM
+        else:
+            # Active fire season (>12°C): add evapotranspiration losses
+            evap_loss = EVAP_FACTOR * (temp - FIRE_SEASON_TEMP)
+            required_precip = BASE_PRECIP_MM + evap_loss
+
+        # Calculate deficit as percentage of required moisture
+        # 100 = complete deficit (0mm when 50mm needed)
+        # 0 = surplus (actual >= required)
+        deficit_ratio = max(0, (required_precip - precip) / required_precip)
+        return 100 * deficit_ratio
+
+    df["precip_risk"] = df.apply(calculate_precip_risk, axis=1)
+
+    # =========================================================================
+    # 3. DROUGHT ACCUMULATION SCORE (0-100)
+    # =========================================================================
+    # Tracks cumulative moisture deficit over 3 months, analogous to FWI's
+    # Drought Code (DC) which represents deep soil moisture in compact layers.
+    #
+    # CRITICAL: Drought only matters during fire season (temp > 5°C)
+    # Outside fire season, drought accumulation is irrelevant for fire risk.
+    # This reflects FWI's "overwintering" adjustment where DC values are
+    # reset or heavily adjusted at season start.
+    # Source: https://climate-adapt.eea.europa.eu/en/metadata/indicators/fire-weather-index
+    #
+    # Reference threshold: 150mm over 3 months is adequate for Alberta
+    # - Based on average Alberta summer precip: ~60-70mm/month
+    # - 3-month period captures antecedent moisture conditions
+    # Source: FWI system uses cumulative moisture tracking across multiple timescales
+
+    DROUGHT_THRESHOLD_MM = 150  # 3-month precipitation threshold
+    FIRE_SEASON_TEMP_MIN = 5  # Temperature below which fire risk is negligible
+
     df["drought_risk"] = np.nan
     for location in df["location"].unique():
         mask = df["location"] == location
         precip_series = df.loc[mask, "total_precipitation_mm"]
+        temp_series = df.loc[mask, "mean_temperature_c"]
 
         # Calculate 3-month rolling sum
         rolling_precip = precip_series.rolling(window=3, min_periods=1).sum()
 
-        # Convert to deficit score (150mm reference = 0 risk, 0mm = 100 risk)
-        drought_score = rolling_precip.apply(
-            lambda x: max(0, min(100, 100 - (x / 150 * 100))) if pd.notna(x) else np.nan
-        )
+        # Convert to deficit score, but only apply during fire season
+        drought_scores = []
+        for precip_3m, temp in zip(rolling_precip, temp_series):
+            if pd.isna(precip_3m) or pd.isna(temp):
+                drought_scores.append(np.nan)
+            elif temp < FIRE_SEASON_TEMP_MIN:
+                # Outside fire season: drought is irrelevant
+                drought_scores.append(0)
+            else:
+                # During fire season: calculate drought deficit
+                deficit = max(
+                    0, min(100, 100 - (precip_3m / DROUGHT_THRESHOLD_MM * 100))
+                )
+                drought_scores.append(deficit)
 
-        df.loc[mask, "drought_risk"] = drought_score.values
+        df.loc[mask, "drought_risk"] = drought_scores
 
-    # Combined Proxy FWI (weighted average)
-    # Weights: temp (40%), precip (35%), drought (25%)
+    # =========================================================================
+    # 4. COMBINED PROXY FWI (0-100)
+    # =========================================================================
+    # Weighted combination reflecting relative importance in fire behavior:
+    # - Temperature (45%): Primary driver of fire season and fuel drying rate
+    #   Research shows temp/RH drive 75% of extreme fire weather
+    #   Source: https://confluence.ecmwf.int/pages/viewpage.action?pageId=283569774
+    # - Precipitation deficit (30%): Immediate fuel moisture conditions
+    # - Drought accumulation (25%): Antecedent moisture (deep soil/fuel layers)
+    #
+    # These weights approximate FWI's integration of ISI (temperature-dependent
+    # spread) and BUI (moisture-dependent fuel availability) into final FWI.
+
+    WEIGHT_TEMP = 0.45
+    WEIGHT_PRECIP = 0.30
+    WEIGHT_DROUGHT = 0.25
+
     df["proxy_fwi"] = (
-        0.40 * df["temp_risk"] + 0.35 * df["precip_risk"] + 0.25 * df["drought_risk"]
+        WEIGHT_TEMP * df["temp_risk"]
+        + WEIGHT_PRECIP * df["precip_risk"]
+        + WEIGHT_DROUGHT * df["drought_risk"]
     )
 
     # Clean up intermediate columns
