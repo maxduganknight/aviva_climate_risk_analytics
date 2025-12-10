@@ -9,8 +9,102 @@ import matplotlib.pyplot as plt
 # CLIMATE VARIABLES CONFIGURATION
 # ============================================================================
 
+
 # Central configuration for all climate variables used in the project
 # Each variable has metadata for consistent naming and display across scripts
+def calculate_drought_accumulation(
+    df,
+    precip_col="total_precipitation_mm",
+    temp_col="mean_temperature_c",
+    rolling_window=3,
+    precip_threshold_mm=150,
+    temp_threshold_c=None,
+):
+    """
+    Calculate drought accumulation score based on precipitation deficit.
+
+    This function calculates a rolling precipitation sum and converts it to a
+    drought deficit score (0-100), where:
+    - 0 = No drought (adequate precipitation)
+    - 100 = Severe drought (minimal precipitation)
+
+    Optional temperature-gating ensures drought is only assessed during periods
+    when it's meteorologically relevant (e.g., above freezing/snow season for
+    wildfire risk).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with location, precipitation, and temperature data
+    precip_col : str
+        Column name for precipitation data (mm)
+    temp_col : str
+        Column name for temperature data (°C)
+    rolling_window : int
+        Number of months for rolling precipitation sum (default: 3)
+    precip_threshold_mm : float
+        Precipitation threshold for the rolling window (default: 150mm for 3 months)
+    temp_threshold_c : float or None
+        Minimum temperature for drought assessment (default: None = no temperature gating)
+        If provided, drought score is set to 0 below this temperature threshold.
+
+    Returns
+    -------
+    pd.Series
+        Drought accumulation scores (0-100)
+
+    Notes
+    -----
+    - If temp_threshold_c is None, drought is calculated year-round
+    - If temp_threshold_c is provided, drought score is set to 0 below threshold
+    - Score is calculated as: 100 * (1 - rolling_precip / threshold)
+    - Clamped to [0, 100] range
+
+    Examples
+    --------
+    >>> # No temperature gating (year-round drought assessment)
+    >>> df['drought_score'] = calculate_drought_accumulation(df, temp_threshold_c=None)
+    >>>
+    >>> # Temperature-gated for fire season only (>5°C)
+    >>> df['fire_drought'] = calculate_drought_accumulation(df, temp_threshold_c=5)
+    """
+    import numpy as np
+    import pandas as pd
+
+    drought_scores = []
+
+    for location in df["location"].unique():
+        mask = df["location"] == location
+        precip_series = df.loc[mask, precip_col]
+        temp_series = df.loc[mask, temp_col]
+
+        # Calculate rolling sum
+        rolling_precip = precip_series.rolling(
+            window=rolling_window, min_periods=1
+        ).sum()
+
+        # Convert to deficit score with optional temperature gating
+        location_scores = []
+        for precip_sum, temp in zip(rolling_precip, temp_series):
+            if pd.isna(precip_sum):
+                location_scores.append(np.nan)
+            elif temp_threshold_c is not None and (
+                pd.isna(temp) or temp < temp_threshold_c
+            ):
+                # Temperature gating enabled: outside active season
+                location_scores.append(0)
+            else:
+                # Calculate drought deficit
+                deficit = max(
+                    0, min(100, 100 - (precip_sum / precip_threshold_mm * 100))
+                )
+                location_scores.append(deficit)
+
+        drought_scores.extend(location_scores)
+
+    return pd.Series(drought_scores, index=df.index)
+
+
 VARIABLES = {
     "temperature": {
         "long_name": "mean_temperature_c",
@@ -53,6 +147,13 @@ VARIABLES = {
         "display_name": "Proxy Fire Weather Index",
         "units": "index (0-100)",
         "description": "Proxy Fire Weather Index",
+    },
+    "drought_accumulation": {
+        "long_name": "drought_accumulation",
+        "short_name": "drought",
+        "display_name": "Drought Accumulation",
+        "units": "index (0-100)",
+        "description": "3-month precipitation deficit score (0=no drought, 100=severe drought)",
     },
 }
 

@@ -11,7 +11,7 @@ import pandas as pd
 
 # Add parent directory to path to import utils
 sys.path.append(str(Path(__file__).parent))
-from utils import VARIABLES
+from utils import VARIABLES, calculate_drought_accumulation
 
 
 def load_station_coords(station_inventory_path):
@@ -298,31 +298,15 @@ def calculate_proxy_fwi(df):
     DROUGHT_THRESHOLD_MM = 150  # 3-month precipitation threshold
     FIRE_SEASON_TEMP_MIN = 5  # Temperature below which fire risk is negligible
 
-    df["drought_risk"] = np.nan
-    for location in df["location"].unique():
-        mask = df["location"] == location
-        precip_series = df.loc[mask, "total_precipitation_mm"]
-        temp_series = df.loc[mask, "mean_temperature_c"]
-
-        # Calculate 3-month rolling sum
-        rolling_precip = precip_series.rolling(window=3, min_periods=1).sum()
-
-        # Convert to deficit score, but only apply during fire season
-        drought_scores = []
-        for precip_3m, temp in zip(rolling_precip, temp_series):
-            if pd.isna(precip_3m) or pd.isna(temp):
-                drought_scores.append(np.nan)
-            elif temp < FIRE_SEASON_TEMP_MIN:
-                # Outside fire season: drought is irrelevant
-                drought_scores.append(0)
-            else:
-                # During fire season: calculate drought deficit
-                deficit = max(
-                    0, min(100, 100 - (precip_3m / DROUGHT_THRESHOLD_MM * 100))
-                )
-                drought_scores.append(deficit)
-
-        df.loc[mask, "drought_risk"] = drought_scores
+    # Use modular drought calculation function
+    df["drought_risk"] = calculate_drought_accumulation(
+        df,
+        precip_col="total_precipitation_mm",
+        temp_col="mean_temperature_c",
+        rolling_window=3,
+        precip_threshold_mm=DROUGHT_THRESHOLD_MM,
+        temp_threshold_c=FIRE_SEASON_TEMP_MIN,
+    )
 
     # =========================================================================
     # 4. COMBINED PROXY FWI (0-100)
@@ -420,6 +404,7 @@ def create_regional_aggregations(df):
         "mean_cooling_days_c",
         "mean_heating_days_c",
         "proxy_fwi",
+        "drought_accumulation",
     ]
 
     # Create aggregations for each quadrant
@@ -662,6 +647,21 @@ if __name__ == "__main__":
 
     # Calculate proxy FWI
     long_df = calculate_proxy_fwi(long_df)
+
+    # Calculate standalone drought accumulation score (3-month deficit)
+    # No temperature-gating for drought analysis (year-round assessment)
+    print("\nCalculating drought accumulation score...")
+    long_df["drought_accumulation"] = calculate_drought_accumulation(
+        long_df,
+        precip_col="total_precipitation_mm",
+        temp_col="mean_temperature_c",
+        rolling_window=3,
+        precip_threshold_mm=150,
+        temp_threshold_c=None,  # No temp gating - assess drought year-round
+    )
+    print(
+        f"   ✓ Drought accumulation calculated (range: {long_df['drought_accumulation'].min():.1f} - {long_df['drought_accumulation'].max():.1f})"
+    )
 
     # Create regional quadrant aggregations
     long_df = create_regional_aggregations(long_df)

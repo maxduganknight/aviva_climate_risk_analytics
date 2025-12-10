@@ -1,10 +1,12 @@
 import os
 
+import geopandas as gpd
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.offsetbox import AnnotationBbox, OffsetImage
+from matplotlib.patches import Rectangle
 from utils import (
     DECADE_COLORS,
     FIGURE_SIZE_WIDE,
@@ -267,96 +269,90 @@ def plot_each_decade_by_month(df, y_variable, title, ylabel, caption=None):
 
 
 def plot_alberta_totals():
+    """
+    Generate standardized time-series plots for all variables.
+
+    Creates two types of plots for each variable in VARIABLES:
+    1. Annual time series (bar or line plot)
+    2. Monthly by decade (line plot showing each decade)
+    """
     totals_df = df[df["location"] == "Grand Total"]
 
-    # Plotting annual temperature
-    annual_temps = totals_df.groupby("year")["mean_temperature_c"].mean()
-    total_temps = plot_bars(
-        annual_temps.index, annual_temps, "Alberta Annual Temperature °C"
-    )
-    total_temps.savefig("figures/alberta_annual_temperature.png")
-    plt.clf()
+    print("\nGenerating Alberta total visualizations...")
 
-    # Plotting annual precipitation
-    annual_precip = totals_df.groupby("year")["total_precipitation_mm"].sum()
-    total_precip = plot_bars(
-        annual_precip.index, annual_precip, "Alberta Annual Precipitation mm"
-    )
-    total_precip.savefig("figures/alberta_annual_precipitation.png")
-    plt.clf()
+    # Configuration for special handling
+    aggregation_methods = {
+        "temperature": "mean",
+        "precipitation": "sum",
+        "snow_on_ground": "sum",
+        "heating_degrees": "sum",
+        "cooling_degrees": "sum",
+        "proxy_fwi": "mean",
+        "drought_accumulation": "mean",
+    }
 
-    # Snow on Ground
-    annual_snow = totals_df.groupby("year")["snow_on_ground_last_day_cm"].sum()
-    total_snow = plot_bars(
-        annual_snow.index, annual_snow, "Alberta Annual Snow on Ground Sum cm"
-    )
-    total_snow.savefig("figures/alberta_annual_snow_on_ground.png")
-    plt.clf()
+    plot_types = {
+        "temperature": "bar",
+        "precipitation": "bar",
+        "snow_on_ground": "bar",
+        "heating_degrees": "bar",
+        "cooling_degrees": "bar",
+        "proxy_fwi": "line",
+        "drought_accumulation": "line",
+    }
 
-    # Proxy FWI - Annual Average
-    annual_fwi = totals_df.groupby("year")["proxy_fwi"].mean()
-    total_fwi = plot_line(
-        annual_fwi.index, annual_fwi, "Alberta Annual Average Proxy FWI"
-    )
-    plt.xlabel("Year")
-    plt.ylabel("Proxy FWI (0-100)")
-    total_fwi.savefig("figures/alberta_annual_proxy_fwi.png")
-    plt.clf()
+    captions = {
+        "proxy_fwi": "Note: Proxy FWI is an estimate of the Canadian Forest Fire Weather Index (FWI) System derived from temperature, precipitation, and drought. It is temperature-gated (values below 5°C set to zero).",
+        "drought_accumulation": "Note: Drought accumulation is a 3-month precipitation deficit score (0=no drought, 100=severe drought). Assessed year-round without temperature-gating.",
+        "cooling_degrees": "Note: Cooling degree days are calculated as the sum of daily temperatures above 18°C.",
+        "heating_degrees": "Note: Heating degree days are calculated as the sum of daily temperatures below 18°C.",
+    }
 
-    # Proxy FWI - Summer Peak (May-Sep average)
-    summer_months = totals_df[totals_df["month"].isin([5, 6, 7, 8, 9])]
-    summer_fwi = summer_months.groupby("year")["proxy_fwi"].mean()
-    summer_fwi_plot = plot_line(
-        summer_fwi.index, summer_fwi, "Alberta Summer Peak Proxy FWI (May-Sep)"
-    )
-    plt.xlabel("Year")
-    plt.ylabel("Proxy FWI (0-100)")
-    summer_fwi_plot.savefig("figures/alberta_summer_proxy_fwi.png")
-    plt.clf()
+    # Loop through all variables
+    for var_key, var_config in VARIABLES.items():
+        var_name = var_config["long_name"]
+        display_name = var_config["display_name"]
+        units = var_config["units"]
 
-    # Heating degree days
-    annual_heating = totals_df.groupby("year")["mean_heating_days_c"].sum()
-    total_heating = plot_bars(
-        annual_heating.index, annual_heating, "Alberta Annual Heating Degree Days"
-    )
-    total_heating.savefig("figures/alberta_annual_heating_degree_days.png")
-    plt.clf()
+        if var_name not in totals_df.columns:
+            print(f"  ⚠ Skipping {display_name}: column '{var_name}' not found")
+            continue
 
-    # Cooling degree days
-    annual_cooling = totals_df.groupby("year")["mean_cooling_days_c"].sum()
-    total_cooling = plot_bars(
-        annual_cooling.index, annual_cooling, "Alberta Annual Cooling Degree Days"
-    )
-    total_cooling.savefig("figures/alberta_annual_cooling_degree_days.png")
-    plt.clf()
+        # Get aggregation method
+        agg_method = aggregation_methods.get(var_key, "mean")
+        plot_type = plot_types.get(var_key, "bar")
+        caption = captions.get(var_key, "")
 
-    # Monthly temperature by decade
-    fig = plot_each_decade_by_month(
-        totals_df,
-        "mean_temperature_c",
-        "Alberta Monthly Temperature by Decade",
-        "Temperature (°C)",
-    )
-    save_and_clear(fig, "figures/alberta_monthly_temperature_by_decade.png")
+        # 1. Annual time series
+        annual_data = totals_df.groupby("year")[var_name].agg(agg_method)
 
-    # Monthly precipitation by decade
-    fig = plot_each_decade_by_month(
-        totals_df,
-        "total_precipitation_mm",
-        "Precipitation Decreasing Especially in Hottest Months",
-        "Alberta Total Precipitation (mm)",
-    )
-    save_and_clear(fig, "figures/alberta_monthly_precipitation_by_decade.png")
+        if plot_type == "line":
+            fig = plot_line(
+                annual_data.index, annual_data.values, f"Alberta Annual {display_name}"
+            )
+        else:
+            fig = plot_bars(
+                annual_data.index, annual_data.values, f"Alberta Annual {display_name}"
+            )
 
-    # Monthly proxy FWI by decade
-    fig = plot_each_decade_by_month(
-        totals_df,
-        "proxy_fwi",
-        "Fire Weather Increasing and Extending into Fall",
-        "Alberta Proxy Fire Weather Index",
-        caption="Note: Proxy FWI is an estimate of the Canadian Forest Fire Weather Index (FWI) System derived from temperature, precipitation, and drought. It is temperature-gated (values below 5°C set to zero).",
-    )
-    save_and_clear(fig, "figures/alberta_monthly_proxy_fwi_by_decade.png")
+        plt.xlabel("Year")
+        plt.ylabel(f"{display_name} ({units})")
+        filename = f"figures/alberta_annual_{var_key}.png"
+        fig.savefig(filename)
+        plt.clf()
+        print(f"  ✓ {filename}")
+
+        # 2. Monthly by decade
+        fig = plot_each_decade_by_month(
+            totals_df,
+            var_name,
+            f"{display_name} by Decade",
+            f"{display_name} ({units})",
+            caption=caption,
+        )
+        filename = f"figures/alberta_monthly_{var_key}_by_decade.png"
+        save_and_clear(fig, filename)
+        print(f"  ✓ {filename}")
 
 
 def plot_regional_anomaly_heatmaps():
@@ -366,6 +362,8 @@ def plot_regional_anomaly_heatmaps():
     Creates one heatmap per variable showing how anomalies vary across
     regions and time.
     """
+    print("\nGenerating regional anomaly heatmaps...")
+
     # Load regional anomalies data
     anomaly_df = pd.read_csv("data_processed/regional_anomalies.csv")
 
@@ -381,7 +379,12 @@ def plot_regional_anomaly_heatmaps():
                     "column": anomaly_column,
                     "title": f"Regional {var_config['display_name']} Anomalies ({var_config['units']})\nRelative to 1981-1996 Baseline",
                     "filename": f"regional_{var_key}_anomaly_heatmap.png",
+                    "display_name": var_config["display_name"],
                 }
+            )
+        else:
+            print(
+                f"  ⚠ Skipping {var_config['display_name']}: anomaly column '{anomaly_column}' not found"
             )
 
     # Generate heatmap for each variable
@@ -394,7 +397,300 @@ def plot_regional_anomaly_heatmaps():
             figsize=(16, 6),
         )
         save_and_clear(fig, f"figures/{var_config['filename']}")
-        print(f"Saved {var_config['filename']}")
+        print(f"  ✓ figures/{var_config['filename']}")
+
+
+# New map function with provincial boundaries
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+
+def plot_alberta_station_map(df, shapefile_path='data_raw/lpr_000b16a_e/lpr_000b16a_e.shp', figsize=(14, 16)):
+    """
+    Create a map of Alberta showing regional quadrants and all weather stations with provincial boundaries.
+    
+    This visualization shows:
+    1. Provincial boundaries for Alberta and neighboring provinces
+    2. Regional quadrants (NE, NW, SE, SW Alberta) defined by geographic center
+    3. All individual weather stations plotted by lat/lon coordinates
+    4. Station labels for identification
+    
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Long format dataframe with columns: location, latitude, longitude
+    shapefile_path : str, optional
+        Path to provincial boundaries shapefile
+    figsize : tuple, optional
+        Figure size (width, height). Default (14, 16)
+    
+    Returns
+    -------
+    matplotlib.figure.Figure
+        Figure object
+    """
+    # Load provincial boundaries
+    provinces = gpd.read_file(shapefile_path)
+    
+    # Convert to WGS84 (lat/lon) for easier plotting with station coordinates
+    provinces = provinces.to_crs(epsg=4326)
+    
+    # Extract unique stations with coordinates (exclude regional aggregations)
+    stations = df[
+        df["latitude"].notna() 
+        & (df["location"] != "Grand Total")
+        & ~df["location"].str.contains("Alberta", na=False)
+    ][["location", "latitude", "longitude"]].drop_duplicates()
+    
+    # Calculate geographic boundaries and center of stations
+    lat_min = stations["latitude"].min()
+    lat_max = stations["latitude"].max()
+    lon_min = stations["longitude"].min()
+    lon_max = stations["longitude"].max()
+    
+    lat_center = (lat_min + lat_max) / 2
+    lon_center = (lon_min + lon_max) / 2
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Get Alberta boundaries
+    alberta = provinces[provinces["PRENAME"] == "Alberta"]
+    alberta_bounds = alberta.total_bounds  # [minx, miny, maxx, maxy]
+    
+    # Plot provincial boundaries
+    # Alberta in a distinct color
+    alberta.boundary.plot(ax=ax, edgecolor="black", linewidth=2.5, zorder=2)
+    alberta.plot(ax=ax, color="#F5F5F5", alpha=0.5, zorder=1)
+    
+    # Neighboring provinces in light gray
+    neighbors = provinces[provinces["PRENAME"].isin([
+        "British Columbia", "Saskatchewan", "Northwest Territories", "Montana"
+    ])]
+    neighbors.boundary.plot(ax=ax, edgecolor="gray", linewidth=1.5, zorder=2)
+    neighbors.plot(ax=ax, color="#E8E8E8", alpha=0.3, zorder=1)
+    
+    # Define quadrant colors (light, transparent)
+    quadrant_colors = {
+        "NW": "#FFE6E6",  # Light red
+        "NE": "#E6F3FF",  # Light blue
+        "SW": "#FFF4E6",  # Light orange
+        "SE": "#E6FFE6",  # Light green
+    }
+    
+    # Draw quadrant rectangles
+    # NW quadrant (top-left)
+    nw_rect = Rectangle(
+        (lon_min, lat_center),
+        (lon_center - lon_min),
+        (lat_max - lat_center),
+        facecolor=quadrant_colors["NW"],
+        edgecolor="#CC0000",
+        linewidth=2,
+        linestyle="--",
+        alpha=0.5,
+        zorder=3
+    )
+    ax.add_patch(nw_rect)
+    
+    # NE quadrant (top-right)
+    ne_rect = Rectangle(
+        (lon_center, lat_center),
+        (lon_max - lon_center),
+        (lat_max - lat_center),
+        facecolor=quadrant_colors["NE"],
+        edgecolor="#0000CC",
+        linewidth=2,
+        linestyle="--",
+        alpha=0.5,
+        zorder=3
+    )
+    ax.add_patch(ne_rect)
+    
+    # SW quadrant (bottom-left)
+    sw_rect = Rectangle(
+        (lon_min, lat_min),
+        (lon_center - lon_min),
+        (lat_center - lat_min),
+        facecolor=quadrant_colors["SW"],
+        edgecolor="#CC8800",
+        linewidth=2,
+        linestyle="--",
+        alpha=0.5,
+        zorder=3
+    )
+    ax.add_patch(sw_rect)
+    
+    # SE quadrant (bottom-right)
+    se_rect = Rectangle(
+        (lon_center, lat_min),
+        (lon_max - lon_center),
+        (lat_center - lat_min),
+        facecolor=quadrant_colors["SE"],
+        edgecolor="#00CC00",
+        linewidth=2,
+        linestyle="--",
+        alpha=0.5,
+        zorder=3
+    )
+    ax.add_patch(se_rect)
+    
+    # Add quadrant labels (centered in each quadrant)
+    label_size = 14
+    label_weight = "bold"
+    
+    # NW label
+    ax.text(
+        (lon_min + lon_center) / 2,
+        (lat_center + lat_max) / 2,
+        "NW Alberta",
+        ha="center",
+        va="center",
+        fontsize=label_size,
+        weight=label_weight,
+        color="#990000",
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#CC0000", linewidth=1.5),
+        zorder=4
+    )
+    
+    # NE label
+    ax.text(
+        (lon_center + lon_max) / 2,
+        (lat_center + lat_max) / 2,
+        "NE Alberta",
+        ha="center",
+        va="center",
+        fontsize=label_size,
+        weight=label_weight,
+        color="#000099",
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#0000CC", linewidth=1.5),
+        zorder=4
+    )
+    
+    # SW label
+    ax.text(
+        (lon_min + lon_center) / 2,
+        (lat_min + lat_center) / 2,
+        "SW Alberta",
+        ha="center",
+        va="center",
+        fontsize=label_size,
+        weight=label_weight,
+        color="#996600",
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#CC8800", linewidth=1.5),
+        zorder=4
+    )
+    
+    # SE label
+    ax.text(
+        (lon_center + lon_max) / 2,
+        (lat_min + lat_center) / 2,
+        "SE Alberta",
+        ha="center",
+        va="center",
+        fontsize=label_size,
+        weight=label_weight,
+        color="#009900",
+        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#00CC00", linewidth=1.5),
+        zorder=4
+    )
+    
+    # Plot stations as points
+    ax.scatter(
+        stations["longitude"],
+        stations["latitude"],
+        s=80,
+        c="#CC0000",
+        marker="o",
+        edgecolors="#660000",
+        linewidths=1.5,
+        alpha=0.9,
+        zorder=5,
+        label=f"Weather Stations (n={len(stations)})"
+    )
+    
+    # Add station labels (with slight offset to avoid overlap with points)
+    for _, station in stations.iterrows():
+        ax.annotate(
+            station["location"],
+            xy=(station["longitude"], station["latitude"]),
+            xytext=(4, 4),
+            textcoords="offset points",
+            fontsize=6.5,
+            alpha=0.85,
+            zorder=6,
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none")
+        )
+    
+    # Add province labels for neighboring provinces
+    for _, prov in neighbors.iterrows():
+        centroid = prov.geometry.centroid
+        # Only label if centroid is within our view
+        ax.text(
+            centroid.x, centroid.y,
+            prov["PRENAME"],
+            ha="center",
+            va="center",
+            fontsize=12,
+            style="italic",
+            alpha=0.6,
+            color="#333333",
+            zorder=2
+        )
+    
+    # Set axis limits to show full Alberta plus some padding
+    lon_padding = 1.5
+    lat_padding = 1.5
+    
+    ax.set_xlim(alberta_bounds[0] - lon_padding, alberta_bounds[2] + lon_padding)
+    ax.set_ylim(alberta_bounds[1] - lat_padding, alberta_bounds[3] + lat_padding)
+    
+    # Labels and title
+    ax.set_xlabel("Longitude (°W)", fontsize=13)
+    ax.set_ylabel("Latitude (°N)", fontsize=13)
+    ax.set_title(
+        f"Alberta Weather Stations and Regional Analysis Quadrants\n"
+        f"Quadrant Boundary: {lat_center:.2f}°N, {lon_center:.2f}°W",
+        fontsize=16,
+        pad=20,
+        weight="bold"
+    )
+    
+    # Add grid
+    ax.grid(True, alpha=0.25, linestyle=":", linewidth=0.5, color="gray", zorder=0)
+    
+    # Add legend
+    ax.legend(loc="upper left", fontsize=11, framealpha=0.95)
+    
+    # Add comprehensive info text box
+    info_text = (
+        f"Weather Station Coverage:\n"
+        f"  Latitude: {lat_min:.2f}°N to {lat_max:.2f}°N\n"
+        f"  Longitude: {lon_min:.2f}°W to {lon_max:.2f}°W\n"
+        f"  Total Stations: {len(stations)}\n\n"
+        f"Regional Quadrants:\n"
+        f"  Divided at geographic center\n"
+        f"  of station network\n\n"
+        f"Note: Quadrants cover only the\n"
+        f"area with weather station data\n"
+        f"(central Alberta)"
+    )
+    ax.text(
+        0.98, 0.02,
+        info_text,
+        transform=ax.transAxes,
+        fontsize=9,
+        verticalalignment="bottom",
+        horizontalalignment="right",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.92, edgecolor="gray", linewidth=1),
+        zorder=7
+    )
+    
+    plt.tight_layout()
+    
+    return fig
 
 
 if __name__ == "__main__":
@@ -403,3 +699,9 @@ if __name__ == "__main__":
 
     # Generate regional anomaly heatmaps
     plot_regional_anomaly_heatmaps()
+
+    # Generate Alberta station map
+    print("\nGenerating Alberta station map...")
+    fig = plot_alberta_station_map(df, figsize=(12, 14))
+    save_and_clear(fig, "figures/alberta_station_map.png")
+    print("  ✓ figures/alberta_station_map.png")

@@ -356,6 +356,8 @@ variables_config <- list(
   list(var_name = "mean_cooling_days_c", display_name = "Cooling Degree Days",
        units = "°C", extrema_types = c("max")),
   list(var_name = "proxy_fwi", display_name = "Proxy Fire Weather Index",
+       units = "index", extrema_types = c("max")),
+  list(var_name = "drought_accumulation", display_name = "Drought Accumulation",
        units = "index", extrema_types = c("max"))
 )
 
@@ -464,9 +466,20 @@ for (region in regions) {
                                           qcov = qcov_current)
             # Interpolate to find new return period
             # (simplified approximation)
-            return_levels$baseline_100yr_new_period[return_levels$return_period == 100] <-
-              100 * (return_levels$baseline_rl[return_levels$return_period == 100] /
-                     return_levels$current_rl[return_levels$return_period == 100])
+            # For maxima: if baseline > current, event is rarer (longer return period)
+            # For minima: if baseline > current, values are lower (more extreme), event is more common (shorter return period)
+            baseline_100 <- return_levels$baseline_rl[return_levels$return_period == 100]
+            current_100 <- return_levels$current_rl[return_levels$return_period == 100]
+
+            if (extrema_type == "max") {
+              # For maxima: ratio stays as is
+              return_levels$baseline_100yr_new_period[return_levels$return_period == 100] <-
+                100 * (baseline_100 / current_100)
+            } else {
+              # For minima: invert the ratio
+              return_levels$baseline_100yr_new_period[return_levels$return_period == 100] <-
+                100 * (current_100 / baseline_100)
+            }
           }, error = function(e) {
             # Column already initialized to NA
           })

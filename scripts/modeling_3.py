@@ -795,6 +795,7 @@ if __name__ == "__main__":
         "heating_degrees": "max",  # Max only (extreme cold periods)
         "cooling_degrees": "max",  # Max only (extreme heat periods)
         "proxy_fwi": "max",  # Max only (extreme fire risk)
+        "drought_accumulation": "max",  # Max only (extreme drought conditions)
     }
 
     # Run regime shift detection - all months
