@@ -1,18 +1,15 @@
 #!/usr/bin/env Rscript
 
 ################################################################################
-# Extreme Value Analysis for Climate Risk Assessment (OSFI B-15 Compliance)
+# Extreme Value Analysis
 #
-# This script performs advanced extreme value analysis using the extRemes package,
+# This script performs extreme value analysis using the extRemes package,
 # including non-stationary GEV models to detect temporal trends in extremes.
 #
 # Based on methodology from:
 # - extRemes package documentation
 # - IPCC AR6 extreme event attribution methods
 # - Previous rainfall EVA analysis
-#
-# Author: Climate Risk Analytics Team
-# Date: December 2024
 ################################################################################
 
 # Load required libraries
@@ -65,7 +62,7 @@ if (!dir.exists(plots_dir)) {
 # Analysis parameters
 regions <- c("Grand Total", "NE Alberta", "NW Alberta", "SE Alberta", "SW Alberta")
 baseline_years <- c(1981, 1996)
-current_years <- c(2010, 2025)
+current_years <- c(2009, 2024)
 return_periods <- c(10, 25, 50, 100)
 
 ################################################################################
@@ -114,7 +111,8 @@ fit_gev_models <- function(data, years) {
     NULL
   })
 
-  # Fit non-stationary GEV model (location and scale vary with year)
+  # Fit non-stationary GEV model
+  # Try location and scale varying first, fall back to location-only if that fails
   nonstationary_fit <- tryCatch({
     fevd(data_clean,
          location.fun = ~ years_clean,
@@ -124,6 +122,18 @@ fit_gev_models <- function(data, years) {
   }, error = function(e) {
     NULL
   })
+
+  # If full non-stationary model failed, try simpler model (location only)
+  if (is.null(nonstationary_fit)) {
+    nonstationary_fit <- tryCatch({
+      fevd(data_clean,
+           location.fun = ~ years_clean,
+           type = "GEV",
+           method = "MLE")
+    }, error = function(e) {
+      NULL
+    })
+  }
 
   # Likelihood ratio test
   lr_pvalue <- NA
@@ -220,12 +230,35 @@ calculate_return_levels <- function(model_fit, return_periods,
       baseline_valid <- !is.null(ci_baseline) && length(ci_baseline) >= 3
       current_valid <- !is.null(ci_current) && length(ci_current) >= 3
 
+      # If CI calculation failed, try to get return level without CIs
+      if (!baseline_valid) {
+        rl_baseline <- tryCatch({
+          rl_result <- return.level(model_fit, return.period = rp, qcov = qcov_baseline)
+          if (is.numeric(rl_result)) rl_result[1] else NA
+        }, error = function(e) {
+          NA
+        })
+      } else {
+        rl_baseline <- ci_baseline[2]
+      }
+
+      if (!current_valid) {
+        rl_current <- tryCatch({
+          rl_result <- return.level(model_fit, return.period = rp, qcov = qcov_current)
+          if (is.numeric(rl_result)) rl_result[1] else NA
+        }, error = function(e) {
+          NA
+        })
+      } else {
+        rl_current <- ci_current[2]
+      }
+
       row_data <- data.frame(
         return_period = rp,
-        baseline_rl = if(baseline_valid) ci_baseline[2] else NA,
+        baseline_rl = rl_baseline,
         baseline_rl_lower = if(baseline_valid) ci_baseline[1] else NA,
         baseline_rl_upper = if(baseline_valid) ci_baseline[3] else NA,
-        current_rl = if(current_valid) ci_current[2] else NA,
+        current_rl = rl_current,
         current_rl_lower = if(current_valid) ci_current[1] else NA,
         current_rl_upper = if(current_valid) ci_current[3] else NA
       )

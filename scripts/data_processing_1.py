@@ -337,8 +337,8 @@ def calculate_proxy_fwi(df):
     # These weights approximate FWI's integration of ISI (temperature-dependent
     # spread) and BUI (moisture-dependent fuel availability) into final FWI.
 
-    WEIGHT_TEMP = 0.45
-    WEIGHT_PRECIP = 0.30
+    WEIGHT_TEMP = 0.5
+    WEIGHT_PRECIP = 0.25
     WEIGHT_DROUGHT = 0.25
 
     df["proxy_fwi"] = (

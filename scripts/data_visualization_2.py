@@ -1,6 +1,10 @@
+import os
+
+import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.offsetbox import AnnotationBbox, OffsetImage
 from utils import (
     DECADE_COLORS,
     FIGURE_SIZE_WIDE,
@@ -9,6 +13,54 @@ from utils import (
     save_and_clear,
     setup_month_axis,
 )
+
+
+def add_aviva_branding(fig, ax, caption=""):
+    """
+    Add Aviva logo and caption to the plot.
+
+    Parameters:
+    -----------
+    fig : matplotlib figure
+        The figure to add branding to
+    ax : matplotlib axis
+        The axis object
+    caption : str, optional
+        Caption text to display below x-axis
+    """
+    # Add caption at bottom left, aligned with plot area
+    if caption:
+        # Use textwrap to enforce line breaks if caption is too long
+        import textwrap
+
+        wrapped_caption = "\n".join(textwrap.wrap(caption, width=160))
+
+        fig.text(
+            0.052,
+            0.01,
+            wrapped_caption,
+            fontsize=9,
+            color="#666666",
+            ha="left",
+            va="bottom",
+            style="italic",
+        )
+
+    # Add Aviva logo at bottom right, aligned with plot area
+    logo_path = "design/aviva_logo.jpeg"
+    if os.path.exists(logo_path):
+        logo = mpimg.imread(logo_path)
+        imagebox = OffsetImage(logo, zoom=0.1)  # Smaller logo
+
+        # Position to align with right edge of chart area, below x-axis labels
+        ab = AnnotationBbox(
+            imagebox,
+            (0.966, 0.01),
+            xycoords="figure fraction",
+            frameon=False,
+            box_alignment=(1.0, 0.0),
+        )
+        ax.add_artist(ab)
 
 
 def plot_bars(x_values, y_values, title):
@@ -152,7 +204,7 @@ def plot_regional_anomaly_heatmap(
     return fig
 
 
-def plot_each_decade_by_month(df, y_variable, title, ylabel):
+def plot_each_decade_by_month(df, y_variable, title, ylabel, caption=None):
     """
     Plot each decade as a separate line showing average monthly values.
 
@@ -166,6 +218,8 @@ def plot_each_decade_by_month(df, y_variable, title, ylabel):
         Plot title
     ylabel : str
         Y-axis label
+    caption : str, optional
+        Caption text to display below x-axis
 
     Returns
     -------
@@ -198,9 +252,17 @@ def plot_each_decade_by_month(df, y_variable, title, ylabel):
     # Apply standard styling
     apply_standard_style(ax, title, "Month", ylabel)
     setup_month_axis(ax)
-    ax.legend(title="Decade", loc="best")
 
-    plt.tight_layout()
+    # Reverse legend order (2020s on top, 1980s on bottom)
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(handles[::-1], labels[::-1], title="Decade", loc="best")
+
+    # Make room for caption and logo at bottom
+    plt.subplots_adjust(bottom=0.15, left=0.08, right=0.95)
+
+    # Add Aviva branding (caption and logo)
+    add_aviva_branding(fig, ax, caption=caption)
+
     return fig
 
 
@@ -281,8 +343,8 @@ def plot_alberta_totals():
     fig = plot_each_decade_by_month(
         totals_df,
         "total_precipitation_mm",
-        "Alberta Monthly Precipitation by Decade",
-        "Precipitation (mm)",
+        "Precipitation Decreasing Especially in Hottest Months",
+        "Alberta Total Precipitation (mm)",
     )
     save_and_clear(fig, "figures/alberta_monthly_precipitation_by_decade.png")
 
@@ -290,8 +352,9 @@ def plot_alberta_totals():
     fig = plot_each_decade_by_month(
         totals_df,
         "proxy_fwi",
-        "Alberta Monthly Fire Weather Index by Decade",
-        "Proxy FWI (0-100)",
+        "Fire Weather Increasing and Extending into Fall",
+        "Alberta Proxy Fire Weather Index",
+        caption="Note: Proxy FWI is an estimate of the Canadian Forest Fire Weather Index (FWI) System derived from temperature, precipitation, and drought. It is temperature-gated (values below 5°C set to zero).",
     )
     save_and_clear(fig, "figures/alberta_monthly_proxy_fwi_by_decade.png")
 

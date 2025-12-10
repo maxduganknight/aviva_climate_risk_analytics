@@ -394,17 +394,32 @@ def calculate_return_period_shift(
 # ============================================================================
 
 
-def analyze_regime_shifts(df, regions, variables):
+def analyze_regime_shifts(df, regions, variables, months=None, label_suffix=""):
     """
     Detect regime shifts for all region-variable combinations.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Data with columns: location, year, month, and variable columns
+    regions : list
+        List of region names to analyze
+    variables : dict
+        Dictionary of variable configurations
+    months : list of int, optional
+        List of months to filter (e.g., [6, 7, 8] for summer months).
+        If None, uses all months.
+    label_suffix : str, optional
+        Suffix to add to variable display name (e.g., " (Summer)")
 
     Returns
     -------
     pd.DataFrame
         Results with columns: region, variable, changepoint_year, probability, etc.
     """
+    month_desc = f" (Months: {months})" if months else ""
     print("\n" + "=" * 80)
-    print("REGIME SHIFT DETECTION (Bayesian Change Point Analysis)")
+    print(f"REGIME SHIFT DETECTION (Bayesian Change Point Analysis){month_desc}")
     print("=" * 80 + "\n")
 
     results = []
@@ -412,13 +427,17 @@ def analyze_regime_shifts(df, regions, variables):
     for region in regions:
         region_data = df[df["location"] == region].copy()
 
+        # Filter by months if specified
+        if months is not None:
+            region_data = region_data[region_data["month"].isin(months)].copy()
+
         for var_key, var_config in variables.items():
             var_name = var_config["long_name"]
 
             if var_name not in region_data.columns:
                 continue
 
-            # Aggregate to annual means
+            # Aggregate to annual means (for the selected months only)
             annual_data = region_data.groupby("year")[var_name].mean()
             years = annual_data.index.values
             values = annual_data.values
@@ -435,10 +454,11 @@ def analyze_regime_shifts(df, regions, variables):
             result = simple_bayesian_changepoint(values_clean, years_clean)
 
             # Store results
+            display_name = var_config["display_name"] + label_suffix
             results.append(
                 {
                     "region": region,
-                    "variable": var_config["display_name"],
+                    "variable": display_name,
                     "variable_key": var_key,
                     "changepoint_year": result["changepoint_year"],
                     "probability": result["changepoint_prob"],
@@ -461,7 +481,7 @@ def analyze_regime_shifts(df, regions, variables):
             # Print significant findings
             if result["significance"] in ["high", "moderate"]:
                 print(
-                    f"{region:15s} | {var_config['display_name']:25s} | "
+                    f"{region:15s} | {display_name:25s} | "
                     f"Changepoint: {result['changepoint_year']} (prob={result['changepoint_prob']:.3f}) | "
                     f"Change: {result['mean_before']:.2f} → {result['mean_after']:.2f}"
                 )
@@ -777,14 +797,27 @@ if __name__ == "__main__":
         "proxy_fwi": "max",  # Max only (extreme fire risk)
     }
 
-    # Run regime shift detection
+    # Run regime shift detection - all months
     regime_results = analyze_regime_shifts(df, regions, VARIABLES)
+
+    # Run regime shift detection - summer months only (June, July, August)
+    print("\n")  # Add spacing
+    summer_regime_results = analyze_regime_shifts(
+        df, regions, VARIABLES, months=[6, 7, 8], label_suffix=" (Summer)"
+    )
+
+    # Combine regime shift results
+    regime_results_combined = pd.concat(
+        [regime_results, summer_regime_results], ignore_index=True
+    )
 
     # Run extreme value analysis
     gev_results = analyze_extreme_values(df, regions, VARIABLES, extrema_config)
 
     # Save results to CSV
-    regime_results.to_csv("data_processed/regime_shift_results.csv", index=False)
+    regime_results_combined.to_csv(
+        "data_processed/regime_shift_results.csv", index=False
+    )
     gev_results.to_csv("data_processed/extreme_value_results.csv", index=False)
 
     print("\n" + "=" * 80)
