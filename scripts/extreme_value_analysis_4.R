@@ -60,7 +60,7 @@ if (!dir.exists(plots_dir)) {
 }
 
 # Analysis parameters
-regions <- c("Grand Total", "NE Alberta", "NW Alberta", "SE Alberta", "SW Alberta")
+regions <- c("Grand Total", "North Cluster", "Southwest Cluster", "Southeast Cluster")
 baseline_years <- c(1981, 1996)
 current_years <- c(2009, 2024)
 return_periods <- c(10, 25, 50, 100)
@@ -327,7 +327,8 @@ create_diagnostic_plots <- function(model_fit, title, filename) {
 
   tryCatch({
     # extRemes package provides built-in diagnostic plots
-    plot(model_fit, main = title)
+    # Suppress the model call text to prevent overlap issues
+    plot(model_fit, show.call = FALSE)
   }, error = function(e) {
     cat(paste0("Warning: Could not create plot for ", title, "\n"))
   })

@@ -339,11 +339,11 @@ def calculate_proxy_fwi(df):
 
 def create_regional_aggregations(df):
     """
-    Create regional quadrant aggregations (NE, NW, SE, SW Alberta).
+    Create regional cluster aggregations (North, Southwest, Southeast Clusters).
 
-    Divides locations into 4 quadrants based on median lat/lon and computes
-    the mean of all available station values per quadrant, following the same
-    methodology as Grand Total.
+    Uses k-means clustering to divide weather stations into 3 natural geographic
+    clusters based on their latitude/longitude coordinates. Computes the mean of
+    all available station values per cluster, following the same methodology as Grand Total.
 
     Parameters
     ----------
@@ -353,48 +353,73 @@ def create_regional_aggregations(df):
     Returns
     -------
     pd.DataFrame
-        Original dataframe with 4 new regional aggregate locations added
+        Original dataframe with 3 new regional aggregate locations added
     """
-    # Calculate geographic center of station coverage for quadrant boundaries
-    locations_with_coords = df[
-        (df["location"] != "Grand Total") & df["latitude"].notna()
-    ].copy()
+    from sklearn.cluster import KMeans
 
-    # Use geographic center of actual station coverage for equal-sized quadrants
-    lat_min = locations_with_coords["latitude"].min()
-    lat_max = locations_with_coords["latitude"].max()
-    lon_min = locations_with_coords["longitude"].min()
-    lon_max = locations_with_coords["longitude"].max()
+    # Get unique stations with coordinates (exclude Grand Total)
+    stations = df[
+        (df["location"] != "Grand Total")
+        & df["latitude"].notna()
+        & ~df["location"].str.contains("Alberta", na=False)
+    ][["location", "latitude", "longitude"]].drop_duplicates()
 
-    lat_center = (lat_min + lat_max) / 2
-    lon_center = (lon_min + lon_max) / 2
+    # Prepare coordinates for clustering
+    coords = stations[["latitude", "longitude"]].values
 
-    print(f"\nCreating regional quadrants:")
-    print(
-        f"  Station coverage: {lat_min:.2f}°N to {lat_max:.2f}°N, {lon_min:.2f}°W to {lon_max:.2f}°W"
+    # K-means clustering with 3 clusters
+    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+    stations["cluster"] = kmeans.fit_predict(coords)
+
+    # Identify clusters based on geographic position
+    # Calculate mean latitude for each cluster to assign names
+    cluster_stats = (
+        stations.groupby("cluster")
+        .agg({"latitude": "mean", "longitude": "mean"})
+        .reset_index()
     )
-    print(f"  North/South boundary: {lat_center:.2f}°N (geographic center)")
-    print(f"  East/West boundary: {lon_center:.2f}°W (geographic center)\n")
 
-    # Assign quadrants to each location
-    def assign_quadrant(row):
-        if pd.isna(row["latitude"]) or pd.isna(row["longitude"]):
-            return None
-        if row["location"] == "Grand Total":
-            return None
+    # Sort by latitude (descending) to identify North vs South
+    cluster_stats = cluster_stats.sort_values("latitude", ascending=False)
 
-        if row["latitude"] >= lat_center:
-            if row["longitude"] >= lon_center:
-                return "NE Alberta"
-            else:
-                return "NW Alberta"
-        else:
-            if row["longitude"] >= lon_center:
-                return "SE Alberta"
-            else:
-                return "SW Alberta"
+    # Northernmost cluster = North
+    north_cluster = cluster_stats.iloc[0]["cluster"]
 
-    df["quadrant"] = df.apply(assign_quadrant, axis=1)
+    # For southern clusters, distinguish by longitude
+    southern_clusters = cluster_stats.iloc[1:]
+    southern_clusters = southern_clusters.sort_values("longitude", ascending=True)
+
+    # Western (lower longitude value) = Southwest, Eastern = Southeast
+    southwest_cluster = southern_clusters.iloc[0]["cluster"]
+    southeast_cluster = southern_clusters.iloc[1]["cluster"]
+
+    # Map cluster numbers to region names
+    cluster_to_region = {
+        north_cluster: "North Cluster",
+        southwest_cluster: "Southwest Cluster",
+        southeast_cluster: "Southeast Cluster",
+    }
+
+    stations["region"] = stations["cluster"].map(cluster_to_region)
+
+    # Print cluster assignments
+    print(f"\nCreating regional clusters (k-means, k=3):")
+    for region in cluster_to_region:
+        region_stations = stations[stations["region"] == region]
+        print(f"\n  {region}:")
+        print(f"    Stations: {len(region_stations)}")
+        print(
+            f"    Center: {region_stations['latitude'].mean():.2f}°N, {region_stations['longitude'].mean():.2f}°W"
+        )
+        print(
+            f"    Station list: {', '.join(sorted(region_stations['location'].tolist()))}"
+        )
+
+    # Create a mapping from location to region for the full dataframe
+    location_to_region = dict(zip(stations["location"], stations["region"]))
+
+    # Assign regions to all rows in df
+    df["region"] = df["location"].map(location_to_region)
 
     # Variables to aggregate
     agg_vars = [
@@ -407,18 +432,18 @@ def create_regional_aggregations(df):
         "drought_accumulation",
     ]
 
-    # Create aggregations for each quadrant
+    # Create aggregations for each region
     regional_records = []
 
-    for quadrant_name in ["NE Alberta", "NW Alberta", "SE Alberta", "SW Alberta"]:
-        quadrant_data = df[df["quadrant"] == quadrant_name].copy()
+    for region_name in cluster_to_region.values():
+        region_data = df[df["region"] == region_name].copy()
 
         # Group by year and month, take mean of all stations
-        for (year, month), group in quadrant_data.groupby(["year", "month"]):
+        for (year, month), group in region_data.groupby(["year", "month"]):
             record = {
                 "year": year,
                 "month": month,
-                "location": quadrant_name,
+                "location": region_name,
                 "latitude": group[
                     "latitude"
                 ].mean(),  # Average lat/lon of contributing stations
@@ -434,8 +459,8 @@ def create_regional_aggregations(df):
     # Create dataframe from regional records
     regional_df = pd.DataFrame(regional_records)
 
-    # Remove temporary quadrant column
-    df = df.drop(columns=["quadrant"])
+    # Remove temporary region column
+    df = df.drop(columns=["region"])
 
     # Append regional aggregations to original dataframe
     df = pd.concat([df, regional_df], ignore_index=True)
@@ -443,8 +468,7 @@ def create_regional_aggregations(df):
     # Sort by location, year, month
     df = df.sort_values(["location", "year", "month"]).reset_index(drop=True)
 
-    print(f"Added {len(regional_records)} regional aggregate records (4 quadrants)")
-
+    print(f"\nAdded {len(regional_records)} regional aggregate records (3 clusters)")
     return df
 
 
@@ -453,7 +477,7 @@ def calculate_regional_anomalies(df, baseline_years=(1981, 1996)):
     Calculate monthly anomalies for regional aggregations relative to baseline period.
 
     Anomalies are calculated as the difference from the region's baseline mean
-    for each month. Only includes regional aggregations (4 quadrants + Grand Total).
+    for each month. Only includes regional aggregations (3 clusters + Grand Total).
 
     Parameters
     ----------
@@ -471,10 +495,9 @@ def calculate_regional_anomalies(df, baseline_years=(1981, 1996)):
     # Define regional locations to include
     regional_locations = [
         "Grand Total",
-        "NE Alberta",
-        "NW Alberta",
-        "SE Alberta",
-        "SW Alberta",
+        "North Cluster",
+        "Southwest Cluster",
+        "Southeast Cluster",
     ]
 
     # Filter for regional aggregations only

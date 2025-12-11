@@ -489,152 +489,6 @@ def analyze_regime_shifts(df, regions, variables, months=None, label_suffix=""):
     return pd.DataFrame(results)
 
 
-def analyze_extreme_values(df, regions, variables, extrema_config):
-    """
-    Perform GEV analysis on extreme values.
-
-    Parameters
-    ----------
-    extrema_config : dict
-        {variable_key: 'max' or 'min' or 'both'}
-
-    Returns
-    -------
-    pd.DataFrame
-        Results with return period calculations
-    """
-    print("\n" + "=" * 80)
-    print("EXTREME VALUE ANALYSIS (GEV Distribution Fitting)")
-    print("=" * 80 + "\n")
-
-    baseline_years = (1981, 1996)
-    current_years = (2010, 2025)
-    return_periods = [10, 25, 50, 100]
-
-    results = []
-
-    for region in regions:
-        region_data = df[df["location"] == region].copy()
-
-        for var_key, var_config in variables.items():
-            var_name = var_config["long_name"]
-
-            if var_name not in region_data.columns:
-                continue
-
-            # Determine which extrema to analyze
-            extrema_types = []
-            if var_key in extrema_config:
-                if extrema_config[var_key] == "both":
-                    extrema_types = ["max", "min"]
-                else:
-                    extrema_types = [extrema_config[var_key]]
-
-            for extrema_type in extrema_types:
-                # Extract annual extrema
-                if extrema_type == "max":
-                    annual_extrema = region_data.groupby("year")[var_name].max()
-                    extrema_label = "Maximum"
-                else:
-                    annual_extrema = region_data.groupby("year")[var_name].min()
-                    extrema_label = "Minimum"
-
-                # Split into baseline and current periods
-                baseline_extrema = annual_extrema[
-                    (annual_extrema.index >= baseline_years[0])
-                    & (annual_extrema.index <= baseline_years[1])
-                ].values
-
-                current_extrema = annual_extrema[
-                    (annual_extrema.index >= current_years[0])
-                    & (annual_extrema.index <= current_years[1])
-                ].values
-
-                if len(baseline_extrema) < 5 or len(current_extrema) < 5:
-                    continue
-
-                # Fit GEV for both periods
-                baseline_fit = fit_gev_and_calculate_return_periods(
-                    baseline_extrema, return_periods
-                )
-                current_fit = fit_gev_and_calculate_return_periods(
-                    current_extrema, return_periods
-                )
-
-                # Calculate return period shift for 100-year event
-                baseline_100yr = baseline_fit["return_levels"].get(100, np.nan)
-                new_return_period = calculate_return_period_shift(
-                    baseline_100yr, current_extrema, current_fit["gev_params"]
-                )
-
-                # Store results
-                result_row = {
-                    "region": region,
-                    "variable": var_config["display_name"],
-                    "variable_key": var_key,
-                    "extrema_type": extrema_label,
-                    "baseline_n_samples": baseline_fit["n_samples"],
-                    "current_n_samples": current_fit["n_samples"],
-                    "baseline_sample_size_warning": baseline_fit["sample_size_warning"],
-                    "current_sample_size_warning": current_fit["sample_size_warning"],
-                    "baseline_fit_quality": baseline_fit["fit_quality"],
-                    "current_fit_quality": current_fit["fit_quality"],
-                    "baseline_ks_pvalue": baseline_fit["ks_pvalue"],
-                    "current_ks_pvalue": current_fit["ks_pvalue"],
-                }
-
-                # Add return levels and confidence intervals for both periods
-                for rp in return_periods:
-                    # Baseline period
-                    result_row[f"baseline_{rp}yr"] = baseline_fit["return_levels"].get(
-                        rp, np.nan
-                    )
-                    result_row[f"baseline_{rp}yr_ci_lower"] = (
-                        baseline_fit["confidence_intervals"]
-                        .get(rp, {})
-                        .get("lower", np.nan)
-                    )
-                    result_row[f"baseline_{rp}yr_ci_upper"] = (
-                        baseline_fit["confidence_intervals"]
-                        .get(rp, {})
-                        .get("upper", np.nan)
-                    )
-
-                    # Current period
-                    result_row[f"current_{rp}yr"] = current_fit["return_levels"].get(
-                        rp, np.nan
-                    )
-                    result_row[f"current_{rp}yr_ci_lower"] = (
-                        current_fit["confidence_intervals"]
-                        .get(rp, {})
-                        .get("lower", np.nan)
-                    )
-                    result_row[f"current_{rp}yr_ci_upper"] = (
-                        current_fit["confidence_intervals"]
-                        .get(rp, {})
-                        .get("upper", np.nan)
-                    )
-
-                    # Change
-                    result_row[f"{rp}yr_change"] = current_fit["return_levels"].get(
-                        rp, np.nan
-                    ) - baseline_fit["return_levels"].get(rp, np.nan)
-
-                result_row["baseline_100yr_new_period"] = new_return_period
-
-                results.append(result_row)
-
-                # Print significant findings (where 100-year event has shifted)
-                if not np.isnan(new_return_period) and new_return_period < 90:
-                    print(
-                        f"{region:15s} | {var_config['display_name']:25s} ({extrema_label}) | "
-                        f"Baseline 100-yr event ({baseline_100yr:.2f} {var_config['units']}) "
-                        f"now occurs every {new_return_period:.1f} years"
-                    )
-
-    return pd.DataFrame(results)
-
-
 # ============================================================================
 # VISUALIZATION
 # ============================================================================
@@ -785,7 +639,7 @@ if __name__ == "__main__":
     df = pd.read_csv("data_processed/long_df.csv")
 
     # Define regions and variables
-    regions = ["Grand Total", "NE Alberta", "NW Alberta", "SE Alberta", "SW Alberta"]
+    regions = ["Grand Total", "North Cluster", "Southwest Cluster", "Southeast Cluster"]
 
     # Define which extrema to analyze for each variable
     extrema_config = {
@@ -812,21 +666,15 @@ if __name__ == "__main__":
         [regime_results, summer_regime_results], ignore_index=True
     )
 
-    # Run extreme value analysis
-    gev_results = analyze_extreme_values(df, regions, VARIABLES, extrema_config)
-
     # Save results to CSV
     regime_results_combined.to_csv(
         "data_processed/regime_shift_results.csv", index=False
     )
-    gev_results.to_csv("data_processed/extreme_value_results.csv", index=False)
 
     print("\n" + "=" * 80)
     print("RESULTS SAVED")
     print("=" * 80)
     print("  - data_processed/regime_shift_results.csv")
-    print("  - data_processed/extreme_value_results.csv")
-
     # Create visualizations
     print("\nGenerating visualizations...")
 
@@ -834,50 +682,5 @@ if __name__ == "__main__":
     fig = create_changepoint_heatmap(regime_results)
     save_and_clear(fig, "figures/regime_shift_changepoint_heatmap.png")
     print("  - figures/regime_shift_changepoint_heatmap.png")
-
-    # GEV diagnostic plots for key variables (Grand Total, current period)
-    print("\nGenerating GEV diagnostic plots for key variables...")
-
-    diagnostic_vars = [
-        ("temperature", "max", "°C"),
-        ("proxy_fwi", "max", "index (0-100)"),
-        ("precipitation", "max", "mm"),
-    ]
-
-    for var_key, extrema_type, units in diagnostic_vars:
-        var_config = VARIABLES[var_key]
-        var_name = var_config["long_name"]
-        region = "Grand Total"
-
-        # Get current period data (2010-2025)
-        region_data = df[df["location"] == region]
-        if extrema_type == "max":
-            annual_extrema = region_data.groupby("year")[var_name].max()
-        else:
-            annual_extrema = region_data.groupby("year")[var_name].min()
-
-        current_extrema = annual_extrema[
-            (annual_extrema.index >= 2010) & (annual_extrema.index <= 2025)
-        ].values
-
-        if len(current_extrema) >= 5:
-            # Fit GEV
-            try:
-                gev_params = genextreme.fit(current_extrema)
-
-                # Create diagnostic plot
-                title = f"{region} - {var_config['display_name']} ({extrema_type.capitalize()}) GEV Diagnostics (2010-2025)"
-                fig = create_gev_diagnostic_plots(
-                    current_extrema, gev_params, title, units
-                )
-
-                if fig is not None:
-                    filename = f"figures/gev_diagnostic_{region.replace(' ', '_').lower()}_{var_key}_{extrema_type}.png"
-                    save_and_clear(fig, filename)
-                    print(f"  - {filename}")
-            except Exception as e:
-                print(
-                    f"    Warning: Could not create diagnostic plot for {var_key}: {e}"
-                )
 
     print("\nAnalysis complete!")

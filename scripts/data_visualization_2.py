@@ -407,16 +407,21 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 
-def plot_alberta_station_map(df, shapefile_path='data_raw/lpr_000b16a_e/lpr_000b16a_e.shp', figsize=(14, 16)):
+def plot_alberta_station_map(
+    df,
+    shapefile_path="data_raw/lpr_000b16a_e/lpr_000b16a_e.shp",
+    figsize=(14, 12),
+    show_clusters=False,
+):
     """
-    Create a map of Alberta showing regional quadrants and all weather stations with provincial boundaries.
-    
+    Create a map of Alberta showing weather station locations with provincial boundaries.
+
     This visualization shows:
     1. Provincial boundaries for Alberta and neighboring provinces
-    2. Regional quadrants (NE, NW, SE, SW Alberta) defined by geographic center
-    3. All individual weather stations plotted by lat/lon coordinates
-    4. Station labels for identification
-    
+    2. Individual weather stations plotted by lat/lon coordinates
+    3. Station labels for identification
+    4. Optional: Color-coded clusters (if show_clusters=True)
+
     Parameters
     ----------
     df : pd.DataFrame
@@ -424,272 +429,179 @@ def plot_alberta_station_map(df, shapefile_path='data_raw/lpr_000b16a_e/lpr_000b
     shapefile_path : str, optional
         Path to provincial boundaries shapefile
     figsize : tuple, optional
-        Figure size (width, height). Default (14, 16)
-    
+        Figure size (width, height). Default (14, 12)
+    show_clusters : bool, optional
+        If True, color-code stations by k-means cluster membership. Default False.
+
     Returns
     -------
     matplotlib.figure.Figure
         Figure object
     """
+    import geopandas as gpd
+    import matplotlib.pyplot as plt
+
     # Load provincial boundaries
     provinces = gpd.read_file(shapefile_path)
-    
-    # Convert to WGS84 (lat/lon) for easier plotting with station coordinates
     provinces = provinces.to_crs(epsg=4326)
-    
+
     # Extract unique stations with coordinates (exclude regional aggregations)
     stations = df[
-        df["latitude"].notna() 
+        df["latitude"].notna()
         & (df["location"] != "Grand Total")
         & ~df["location"].str.contains("Alberta", na=False)
     ][["location", "latitude", "longitude"]].drop_duplicates()
-    
-    # Calculate geographic boundaries and center of stations
-    lat_min = stations["latitude"].min()
-    lat_max = stations["latitude"].max()
-    lon_min = stations["longitude"].min()
-    lon_max = stations["longitude"].max()
-    
-    lat_center = (lat_min + lat_max) / 2
-    lon_center = (lon_min + lon_max) / 2
-    
+
+    # If showing clusters, perform k-means clustering
+    if show_clusters:
+        from sklearn.cluster import KMeans
+
+        coords = stations[["latitude", "longitude"]].values
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+        stations["cluster"] = kmeans.fit_predict(coords)
+
+        # Assign cluster names based on geographic position
+        cluster_stats = (
+            stations.groupby("cluster")
+            .agg({"latitude": "mean", "longitude": "mean"})
+            .reset_index()
+        )
+
+        cluster_stats = cluster_stats.sort_values("latitude", ascending=False)
+        north_cluster = cluster_stats.iloc[0]["cluster"]
+
+        southern_clusters = cluster_stats.iloc[1:]
+        southern_clusters = southern_clusters.sort_values("longitude", ascending=True)
+        southwest_cluster = southern_clusters.iloc[0]["cluster"]
+        southeast_cluster = southern_clusters.iloc[1]["cluster"]
+
+        cluster_to_region = {
+            north_cluster: "North Cluster",
+            southwest_cluster: "Southwest Cluster",
+            southeast_cluster: "Southeast Cluster",
+        }
+
+        stations["region"] = stations["cluster"].map(cluster_to_region)
+
+        # Define colors for each cluster
+        cluster_colors = {
+            "North Cluster": "#2E86AB",  # Blue
+            "Southwest Cluster": "#A23B72",  # Purple/Magenta
+            "Southeast Cluster": "#F18F01",  # Orange
+        }
+
     # Create figure
     fig, ax = plt.subplots(figsize=figsize)
-    
+
     # Get Alberta boundaries
     alberta = provinces[provinces["PRENAME"] == "Alberta"]
-    alberta_bounds = alberta.total_bounds  # [minx, miny, maxx, maxy]
-    
+    alberta_bounds = alberta.total_bounds
+
     # Plot provincial boundaries
-    # Alberta in a distinct color
     alberta.boundary.plot(ax=ax, edgecolor="black", linewidth=2.5, zorder=2)
     alberta.plot(ax=ax, color="#F5F5F5", alpha=0.5, zorder=1)
-    
-    # Neighboring provinces in light gray
-    neighbors = provinces[provinces["PRENAME"].isin([
-        "British Columbia", "Saskatchewan", "Northwest Territories", "Montana"
-    ])]
+
+    # Neighboring provinces
+    neighbors = provinces[
+        provinces["PRENAME"].isin(
+            ["British Columbia", "Saskatchewan", "Northwest Territories", "Montana"]
+        )
+    ]
     neighbors.boundary.plot(ax=ax, edgecolor="gray", linewidth=1.5, zorder=2)
     neighbors.plot(ax=ax, color="#E8E8E8", alpha=0.3, zorder=1)
-    
-    # Define quadrant colors (light, transparent)
-    quadrant_colors = {
-        "NW": "#FFE6E6",  # Light red
-        "NE": "#E6F3FF",  # Light blue
-        "SW": "#FFF4E6",  # Light orange
-        "SE": "#E6FFE6",  # Light green
-    }
-    
-    # Draw quadrant rectangles
-    # NW quadrant (top-left)
-    nw_rect = Rectangle(
-        (lon_min, lat_center),
-        (lon_center - lon_min),
-        (lat_max - lat_center),
-        facecolor=quadrant_colors["NW"],
-        edgecolor="#CC0000",
-        linewidth=2,
-        linestyle="--",
-        alpha=0.5,
-        zorder=3
-    )
-    ax.add_patch(nw_rect)
-    
-    # NE quadrant (top-right)
-    ne_rect = Rectangle(
-        (lon_center, lat_center),
-        (lon_max - lon_center),
-        (lat_max - lat_center),
-        facecolor=quadrant_colors["NE"],
-        edgecolor="#0000CC",
-        linewidth=2,
-        linestyle="--",
-        alpha=0.5,
-        zorder=3
-    )
-    ax.add_patch(ne_rect)
-    
-    # SW quadrant (bottom-left)
-    sw_rect = Rectangle(
-        (lon_min, lat_min),
-        (lon_center - lon_min),
-        (lat_center - lat_min),
-        facecolor=quadrant_colors["SW"],
-        edgecolor="#CC8800",
-        linewidth=2,
-        linestyle="--",
-        alpha=0.5,
-        zorder=3
-    )
-    ax.add_patch(sw_rect)
-    
-    # SE quadrant (bottom-right)
-    se_rect = Rectangle(
-        (lon_center, lat_min),
-        (lon_max - lon_center),
-        (lat_center - lat_min),
-        facecolor=quadrant_colors["SE"],
-        edgecolor="#00CC00",
-        linewidth=2,
-        linestyle="--",
-        alpha=0.5,
-        zorder=3
-    )
-    ax.add_patch(se_rect)
-    
-    # Add quadrant labels (centered in each quadrant)
-    label_size = 14
-    label_weight = "bold"
-    
-    # NW label
-    ax.text(
-        (lon_min + lon_center) / 2,
-        (lat_center + lat_max) / 2,
-        "NW Alberta",
-        ha="center",
-        va="center",
-        fontsize=label_size,
-        weight=label_weight,
-        color="#990000",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#CC0000", linewidth=1.5),
-        zorder=4
-    )
-    
-    # NE label
-    ax.text(
-        (lon_center + lon_max) / 2,
-        (lat_center + lat_max) / 2,
-        "NE Alberta",
-        ha="center",
-        va="center",
-        fontsize=label_size,
-        weight=label_weight,
-        color="#000099",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#0000CC", linewidth=1.5),
-        zorder=4
-    )
-    
-    # SW label
-    ax.text(
-        (lon_min + lon_center) / 2,
-        (lat_min + lat_center) / 2,
-        "SW Alberta",
-        ha="center",
-        va="center",
-        fontsize=label_size,
-        weight=label_weight,
-        color="#996600",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#CC8800", linewidth=1.5),
-        zorder=4
-    )
-    
-    # SE label
-    ax.text(
-        (lon_center + lon_max) / 2,
-        (lat_min + lat_center) / 2,
-        "SE Alberta",
-        ha="center",
-        va="center",
-        fontsize=label_size,
-        weight=label_weight,
-        color="#009900",
-        bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.85, edgecolor="#00CC00", linewidth=1.5),
-        zorder=4
-    )
-    
-    # Plot stations as points
-    ax.scatter(
-        stations["longitude"],
-        stations["latitude"],
-        s=80,
-        c="#CC0000",
-        marker="o",
-        edgecolors="#660000",
-        linewidths=1.5,
-        alpha=0.9,
-        zorder=5,
-        label=f"Weather Stations (n={len(stations)})"
-    )
-    
-    # Add station labels (with slight offset to avoid overlap with points)
-    for _, station in stations.iterrows():
-        ax.annotate(
-            station["location"],
-            xy=(station["longitude"], station["latitude"]),
-            xytext=(4, 4),
-            textcoords="offset points",
-            fontsize=6.5,
-            alpha=0.85,
-            zorder=6,
-            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7, edgecolor="none")
+
+    # Plot stations - color-coded by cluster if show_clusters=True
+    if show_clusters:
+        for region in ["North Cluster", "Southwest Cluster", "Southeast Cluster"]:
+            region_stations = stations[stations["region"] == region]
+            ax.scatter(
+                region_stations["longitude"],
+                region_stations["latitude"],
+                s=100,
+                c=cluster_colors[region],
+                marker="o",
+                edgecolors="white",
+                linewidths=1.5,
+                alpha=0.9,
+                zorder=5,
+                label=f"{region} (n={len(region_stations)})",
+            )
+    else:
+        ax.scatter(
+            stations["longitude"],
+            stations["latitude"],
+            s=100,
+            c="#CC0000",
+            marker="o",
+            edgecolors="#660000",
+            linewidths=1.5,
+            alpha=0.9,
+            zorder=5,
         )
-    
-    # Add province labels for neighboring provinces
+
+    # Add province labels
+    province_label_positions = {
+        "British Columbia": None,
+        "Saskatchewan": None,
+        "Montana": None,
+        "Northwest Territories": (alberta_bounds[0] + 5, alberta_bounds[3] + 0.5),
+    }
+
     for _, prov in neighbors.iterrows():
-        centroid = prov.geometry.centroid
-        # Only label if centroid is within our view
+        prov_name = prov["PRENAME"]
+
+        if (
+            prov_name in province_label_positions
+            and province_label_positions[prov_name] is not None
+        ):
+            x, y = province_label_positions[prov_name]
+        else:
+            centroid = prov.geometry.centroid
+            x, y = centroid.x, centroid.y
+
         ax.text(
-            centroid.x, centroid.y,
-            prov["PRENAME"],
+            x,
+            y,
+            prov_name,
             ha="center",
             va="center",
-            fontsize=12,
+            fontsize=13,
             style="italic",
-            alpha=0.6,
+            alpha=0.5,
             color="#333333",
-            zorder=2
+            zorder=2,
         )
-    
-    # Set axis limits to show full Alberta plus some padding
-    lon_padding = 1.5
-    lat_padding = 1.5
-    
+
+    # Set axis limits
+    lon_padding = 8.0
+    lat_padding = 2.5
+
     ax.set_xlim(alberta_bounds[0] - lon_padding, alberta_bounds[2] + lon_padding)
     ax.set_ylim(alberta_bounds[1] - lat_padding, alberta_bounds[3] + lat_padding)
-    
+
     # Labels and title
     ax.set_xlabel("Longitude (°W)", fontsize=13)
     ax.set_ylabel("Latitude (°N)", fontsize=13)
     ax.set_title(
-        f"Alberta Weather Stations and Regional Analysis Quadrants\n"
-        f"Quadrant Boundary: {lat_center:.2f}°N, {lon_center:.2f}°W",
+        "Alberta Weather Stations",
         fontsize=16,
         pad=20,
-        weight="bold"
+        weight="bold",
     )
-    
+
     # Add grid
     ax.grid(True, alpha=0.25, linestyle=":", linewidth=0.5, color="gray", zorder=0)
-    
-    # Add legend
-    ax.legend(loc="upper left", fontsize=11, framealpha=0.95)
-    
-    # Add comprehensive info text box
-    info_text = (
-        f"Weather Station Coverage:\n"
-        f"  Latitude: {lat_min:.2f}°N to {lat_max:.2f}°N\n"
-        f"  Longitude: {lon_min:.2f}°W to {lon_max:.2f}°W\n"
-        f"  Total Stations: {len(stations)}\n\n"
-        f"Regional Quadrants:\n"
-        f"  Divided at geographic center\n"
-        f"  of station network\n\n"
-        f"Note: Quadrants cover only the\n"
-        f"area with weather station data\n"
-        f"(central Alberta)"
-    )
-    ax.text(
-        0.98, 0.02,
-        info_text,
-        transform=ax.transAxes,
-        fontsize=9,
-        verticalalignment="bottom",
-        horizontalalignment="right",
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.92, edgecolor="gray", linewidth=1),
-        zorder=7
-    )
-    
+
+    # Add legend if showing clusters
+    if show_clusters:
+        ax.legend(loc="upper left", fontsize=11, framealpha=0.95, edgecolor="gray")
+
     plt.tight_layout()
-    
+
+    return fig
+
+    plt.tight_layout()
+
     return fig
 
 
@@ -704,4 +616,10 @@ if __name__ == "__main__":
     print("\nGenerating Alberta station map...")
     fig = plot_alberta_station_map(df, figsize=(12, 14))
     save_and_clear(fig, "figures/alberta_station_map.png")
-    print("  ✓ figures/alberta_station_map.png")
+    print("  ✓ figures/a lberta_station_map.png")
+
+    # Generate Alberta station map
+    print("\nGenerating Alberta clusters map...")
+    fig = plot_alberta_station_map(df, figsize=(12, 14), show_clusters=True)
+    save_and_clear(fig, "figures/alberta_clusters_map.png")
+    print("  ✓ figures/alberta_clusters_map.png")
