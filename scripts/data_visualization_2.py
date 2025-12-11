@@ -410,7 +410,7 @@ from matplotlib.patches import Rectangle
 def plot_alberta_station_map(
     df,
     shapefile_path="data_raw/lpr_000b16a_e/lpr_000b16a_e.shp",
-    figsize=(14, 12),
+    figsize=(6, 4),
     show_clusters=False,
 ):
     """
