@@ -5,11 +5,6 @@
 #
 # This script performs extreme value analysis using the extRemes package,
 # including non-stationary GEV models to detect temporal trends in extremes.
-#
-# Based on methodology from:
-# - extRemes package documentation
-# - IPCC AR6 extreme event attribution methods
-# - Previous rainfall EVA analysis
 ################################################################################
 
 # Load required libraries

@@ -1,5 +1,5 @@
 """
-Climate Risk Modeling: Regime Shift Detection and Extreme Value Analysis
+Climate Risk Modeling: Regime Shift Detection
 
 This script performs Bayesian change point detection to identify regime shifts
 """
