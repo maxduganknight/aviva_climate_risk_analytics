@@ -5,3 +5,4 @@ data_processed/
 venv/
 .DS_Store
 scripts/__pycache__/
+.ipynb_checkpoints/
