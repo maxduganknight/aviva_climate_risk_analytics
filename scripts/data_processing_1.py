@@ -1,6 +1,6 @@
 """
 This script processes the raw csv data from ECCC, reformats it and saves the processed data
-to a new csv file in data_processed/
+to a new csv file in data_processed/long_df.csv
 """
 
 import sys
@@ -17,6 +17,7 @@ from utils import VARIABLES, calculate_drought_accumulation
 def load_station_coords(station_inventory_path):
     """
     Load station coordinates from ECCC Station Inventory file.
+    Downloaded from https://collaboration.cmc.ec.gc.ca/cmc/climate/Get_More_Data_Plus_de_donnees/
 
     Parameters
     ----------
@@ -44,14 +45,6 @@ def load_station_coords(station_inventory_path):
 def reformat_eccc_data_to_long(df, coord_lookup=None):
     """
     Reformat ECCC climate data from wide format to long format.
-
-    The input dataframe has a multi-level column structure:
-    - Level 0: Column Labels header
-    - Level 1: Year (1981, 1982, etc.)
-    - Level 2: Month (1-12)
-    - Level 3: Metric names (MEAN_TEMPERATURE, TOTAL_PRECIPITATION, etc.)
-
-    Each year has 12 months × 5 metrics = 60 columns, followed by 5 yearly average columns.
 
     Parameters
     ----------
@@ -174,11 +167,6 @@ def calculate_proxy_fwi(df):
     This is an adaptation of the Canadian Fire Weather Index System (FWI),
     modified for monthly data without relative humidity or wind speed measurements.
 
-    Methodology References:
-    - Canadian FWI System: https://cwfis.cfs.nrcan.gc.ca/background/summary/fwi
-    - NWCG FWI Documentation: https://www.nwcg.gov/publications/pms437/cffdrs/fire-weather-index-fwi-system
-    - Climate-ADAPT Monthly FWI: https://climate-adapt.eea.europa.eu/en/metadata/indicators/fire-weather-index-monthly-mean-1979-2019
-
     Key Adaptations for Monthly Data:
     1. Temperature-dependent precipitation thresholds (accounts for evapotranspiration)
     2. Fire season threshold at 5°C (Canadian FWI standard)
@@ -231,18 +219,6 @@ def calculate_proxy_fwi(df):
     # =========================================================================
     # 2. PRECIPITATION DEFICIT RISK SCORE (0-100)
     # =========================================================================
-    # Temperature-adjusted precipitation requirements account for:
-    # - Base moisture needs for fuel (25mm/month minimum)
-    # - Evapotranspiration losses increasing with temperature above 12°C
-    # - Reference evapotranspiration rate: ~3.5mm per °C above 12°C
-    #
-    # CRITICAL: Like drought, precipitation deficit only matters during fire season.
-    # Below 5°C, snow cover and frozen ground prevent fire spread regardless of
-    # precipitation amounts. This aligns with FWI's fire season definitions.
-    #
-    # This approach is inspired by FWI's Drought Code (DC) which tracks deep
-    # moisture and accounts for evapotranspiration through drying equations.
-    # Source: https://confluence.ecmwf.int/pages/viewpage.action?pageId=283569774
 
     # Constants derived from FWI principles and Alberta climate:
     BASE_PRECIP_MM = 25  # Base monthly moisture requirement (mm)
@@ -284,12 +260,6 @@ def calculate_proxy_fwi(df):
     # Tracks cumulative moisture deficit over 3 months, analogous to FWI's
     # Drought Code (DC) which represents deep soil moisture in compact layers.
     #
-    # CRITICAL: Drought only matters during fire season (temp > 5°C)
-    # Outside fire season, drought accumulation is irrelevant for fire risk.
-    # This reflects FWI's "overwintering" adjustment where DC values are
-    # reset or heavily adjusted at season start.
-    # Source: https://climate-adapt.eea.europa.eu/en/metadata/indicators/fire-weather-index
-    #
     # Reference threshold: 150mm over 3 months is adequate for Alberta
     # - Based on average Alberta summer precip: ~60-70mm/month
     # - 3-month period captures antecedent moisture conditions
@@ -311,15 +281,6 @@ def calculate_proxy_fwi(df):
     # =========================================================================
     # 4. COMBINED PROXY FWI (0-100)
     # =========================================================================
-    # Weighted combination reflecting relative importance in fire behavior:
-    # - Temperature (45%): Primary driver of fire season and fuel drying rate
-    #   Research shows temp/RH drive 75% of extreme fire weather
-    #   Source: https://confluence.ecmwf.int/pages/viewpage.action?pageId=283569774
-    # - Precipitation deficit (30%): Immediate fuel moisture conditions
-    # - Drought accumulation (25%): Antecedent moisture (deep soil/fuel layers)
-    #
-    # These weights approximate FWI's integration of ISI (temperature-dependent
-    # spread) and BUI (moisture-dependent fuel availability) into final FWI.
 
     WEIGHT_TEMP = 0.5
     WEIGHT_PRECIP = 0.25
@@ -406,14 +367,6 @@ def create_regional_aggregations(df):
     print(f"\nCreating regional clusters (k-means, k=3):")
     for region in cluster_to_region:
         region_stations = stations[stations["region"] == region]
-        print(f"\n  {region}:")
-        print(f"    Stations: {len(region_stations)}")
-        print(
-            f"    Center: {region_stations['latitude'].mean():.2f}°N, {region_stations['longitude'].mean():.2f}°W"
-        )
-        print(
-            f"    Station list: {', '.join(sorted(region_stations['location'].tolist()))}"
-        )
 
     # Create a mapping from location to region for the full dataframe
     location_to_region = dict(zip(stations["location"], stations["region"]))

@@ -355,58 +355,6 @@ def plot_alberta_totals():
         print(f"  ✓ {filename}")
 
 
-def plot_regional_anomaly_heatmaps():
-    """
-    Generate time-series heatmaps for all regional anomaly variables.
-
-    Creates one heatmap per variable showing how anomalies vary across
-    regions and time.
-    """
-    print("\nGenerating regional anomaly heatmaps...")
-
-    # Load regional anomalies data
-    anomaly_df = pd.read_csv("data_processed/regional_anomalies.csv")
-
-    # Build variables list from VARIABLES dict
-    variables = []
-    for var_key, var_config in VARIABLES.items():
-        anomaly_column = f"{var_config['short_name']}_anomaly"
-
-        # Only add if column exists in the dataframe
-        if anomaly_column in anomaly_df.columns:
-            variables.append(
-                {
-                    "column": anomaly_column,
-                    "title": f"Regional {var_config['display_name']} Anomalies ({var_config['units']})\nRelative to 1981-1996 Baseline",
-                    "filename": f"regional_{var_key}_anomaly_heatmap.png",
-                    "display_name": var_config["display_name"],
-                }
-            )
-        else:
-            print(
-                f"  ⚠ Skipping {var_config['display_name']}: anomaly column '{anomaly_column}' not found"
-            )
-
-    # Generate heatmap for each variable
-    for var_config in variables:
-        fig = plot_regional_anomaly_heatmap(
-            df=anomaly_df,
-            anomaly_variable=var_config["column"],
-            title=var_config["title"],
-            cmap="RdBu_r",  # Red for positive anomalies, Blue for negative
-            figsize=(16, 6),
-        )
-        save_and_clear(fig, f"figures/{var_config['filename']}")
-        print(f"  ✓ figures/{var_config['filename']}")
-
-
-# New map function with provincial boundaries
-
-import geopandas as gpd
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-
-
 def plot_alberta_station_map(
     df,
     shapefile_path="data_raw/lpr_000b16a_e/lpr_000b16a_e.shp",
@@ -422,24 +370,11 @@ def plot_alberta_station_map(
     3. Station labels for identification
     4. Optional: Color-coded clusters (if show_clusters=True)
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Long format dataframe with columns: location, latitude, longitude
-    shapefile_path : str, optional
-        Path to provincial boundaries shapefile
-    figsize : tuple, optional
-        Figure size (width, height). Default (14, 12)
-    show_clusters : bool, optional
-        If True, color-code stations by k-means cluster membership. Default False.
-
     Returns
     -------
     matplotlib.figure.Figure
         Figure object
     """
-    import geopandas as gpd
-    import matplotlib.pyplot as plt
 
     # Load provincial boundaries
     provinces = gpd.read_file(shapefile_path)
@@ -608,9 +543,6 @@ def plot_alberta_station_map(
 if __name__ == "__main__":
     df = pd.read_csv("data_processed/long_df.csv")
     plot_alberta_totals()
-
-    # Generate regional anomaly heatmaps
-    plot_regional_anomaly_heatmaps()
 
     # Generate Alberta station map
     print("\nGenerating Alberta station map...")
