@@ -54,11 +54,10 @@ https://climate-change.canada.ca/climate-data/?utm_source=perplexity#/monthly-cl
    ```bash
    python scripts/data_processing_1.py
    python scripts/data_visualization_2.py
-   python scripts/modeling_3.py
    python scripts/regime_shift_analysis_3.py
    ```
 
-### R Environment (for Advanced EVA)
+### R Environment (for Extreme Value Analysis)
 
 1. Install R packages (one-time setup):
    ```r
